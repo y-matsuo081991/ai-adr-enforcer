@@ -1,0 +1,27 @@
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Mac/Windows
+.DS_Store
+Thumbs.db
+Thumbs.db.bak
+
+# Testing
+coverage/
+
+# IDEs
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ----------------------------------------------------------------------
+# 注意: GitHub Actions の制約 (GEMINI.md Rule 1)
+# GitHub Actions は `node_modules` をインストールせず `dist/index.js` を
+# 直接実行するため、コンパイル後の `dist/` ディレクトリは除外しません。
+# ----------------------------------------------------------------------
+# dist/  <- コメントアウトしたままにする

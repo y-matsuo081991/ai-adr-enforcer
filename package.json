@@ -1,0 +1,35 @@
+{
+  "name": "ai-adr-enforcer",
+  "version": "1.0.0",
+  "description": "> **\"Architecture Governance as Code\"**\r >\r > 組織で合意したアーキテクチャの意思決定（ADR: Architecture Decision Records）が、日々のPull Requestで確実に守られているかを **AI (LLM-as-a-Judge) が自動監査し、負債の混入を水際でブロックする** GitHub Action です。",
+  "main": "dist/index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "build": "ncc build src/index.ts -o dist --minify --no-cache",
+    "test": "jest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github-personal:y-matsuo081991/ai-adr-enforcer.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.9.1",
+    "@vercel/ncc": "^0.38.4",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@actions/core": "^3.0.1",
+    "@actions/github": "^9.1.1",
+    "@google/genai": "^2.7.0",
+    "zod": "^4.4.3"
+  }
+}
