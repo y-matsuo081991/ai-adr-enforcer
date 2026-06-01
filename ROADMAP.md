@@ -16,8 +16,11 @@
 
 *   [ ] `@actions/core` を用いた Inputs (API Key, ディレクトリパス等) の受け取り処理
 *   [ ] `@actions/github` (Octokit) を用いた、トリガー元 Pull Request の Diff 取得処理
+*   [ ] 【NFR: Privacy】ADRの内容やPRのDiffをGitHub Actionsの公開ログに露出させない「ログ出力のマスキング機能（Sensitive Data Masking）」の実装
 *   [ ] 監査結果（違反）に基づく、PRへのインラインコメント（Review Comment）自動投稿機能
+*   [ ] 【NFR: Idempotency】PRの更新時（synchronize）に、既存のAIコメントを解決（Resolve）または更新し、スパムを防ぐ重複コメント防止機能の実装
 *   [ ] 重大な違反（MUST FIX等）時の `core.setFailed()` によるCIブロック処理
+*   [ ] 【NFR: Resilience】Gemini APIのダウン・タイムアウト時に、CIをブロックする（Fail-closed）か警告のみでスキップする（Fail-open）かを選択できる設定フラグ（Action Inputs）の実装
 
 ## Phase 3: パッケージ化と Marketplace への公開
 世界中の開発者が利用できるようにOSSとしてリリースします。
