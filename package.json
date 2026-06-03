@@ -24,11 +24,12 @@
     "@vercel/ncc": "^0.38.4",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.11",
+    "ts-node": "^10.9.2",
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "@actions/core": "^3.0.1",
-    "@actions/github": "^9.1.1",
+    "@actions/core": "^2.0.3",
+    "@actions/github": "^6.0.1",
     "@google/genai": "^2.7.0",
     "zod": "^4.4.3"
   }
