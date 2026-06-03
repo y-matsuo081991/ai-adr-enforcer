@@ -1,9 +1,12 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
 import { loadAdrFiles } from './utils/adrLoader';
-import { getPrDiff } from './utils/github';
+import { getPrDiff, postOrUpdateComment } from './utils/github';
+import { LlmJudge } from './LlmJudge';
 
 export async function run(): Promise<void> {
+  let failOpen = false;
+
   try {
     const context = github.context;
 
@@ -17,7 +20,7 @@ export async function run(): Promise<void> {
     const githubToken = core.getInput('github_token', { required: true });
     const geminiApiKey = core.getInput('gemini_api_key', { required: true });
     const adrDirectory = core.getInput('adr_directory', { required: true });
-    const failOpen = core.getInput('fail_open') === 'true';
+    failOpen = core.getInput('fail_open') === 'true';
 
     // 【NFR: Privacy】 ログ出力のマスキング機能 (Sensitive Data Masking)
     core.setSecret(githubToken);
@@ -36,14 +39,29 @@ export async function run(): Promise<void> {
 
     core.info('Data fetching completed. Proceeding to evaluation...');
 
-    // TODO: LlmJudge による監査
-    // TODO: 違反時の Review Comment 投稿と setFailed
+    // 4. LlmJudge による監査フェーズ
+    const judge = new LlmJudge(geminiApiKey);
+    const result = await judge.evaluate(adrContent, prDiff);
+
+    // 5. フィードバックフェーズ
+    if (result.decision === 'pass') {
+      core.info('✅ ADR Check Passed: No architectural violations detected.');
+    } else {
+      core.info('❌ ADR Violation detected. Posting comment to PR...');
+      const commentBody = `## 🚨 Architecture Violation Detected\n\n${result.reasoning}`;
+      await postOrUpdateComment(githubToken, prNumber, commentBody);
+      
+      // CIを失敗させる
+      core.setFailed('ADR Violation detected. See PR comment for details.');
+    }
 
   } catch (error) {
-    if (error instanceof Error) {
-      core.setFailed(error.message);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    
+    if (failOpen) {
+      core.warning(`[Fail-Open] Action encountered an error but fail_open is true. Skipping failure: ${errorMessage}`);
     } else {
-      core.setFailed('An unexpected error occurred');
+      core.setFailed(errorMessage);
     }
   }
 }

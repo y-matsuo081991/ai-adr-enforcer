@@ -6,3 +6,12 @@
  * @returns PRのDiffを表す文字列
  */
 export declare function getPrDiff(token: string, prNumber: number): Promise<string>;
+/**
+ * Pull Request にコメントを投稿します。
+ * スパム防止のため、以前にこのアクションが投稿したコメントが存在する場合は新規投稿ではなく更新（上書き）します。
+ *
+ * @param token GitHub Token
+ * @param prNumber 対象のPull Request番号
+ * @param body コメントの本文（監査結果など）
+ */
+export declare function postOrUpdateComment(token: string, prNumber: number, body: string): Promise<void>;
