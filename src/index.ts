@@ -1,5 +1,7 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
+import { loadAdrFiles } from './utils/adrLoader';
+import { getPrDiff } from './utils/github';
 
 export async function run(): Promise<void> {
   try {
@@ -28,8 +30,12 @@ export async function run(): Promise<void> {
 
     core.info(`Processing PR #${prNumber} with ADRs from ${adrDirectory}...`);
     
-    // TODO: ADRファイルの読み込み
-    // TODO: PR Diff の取得 (Octokit)
+    // 3. データ取得フェーズ
+    const adrContent = loadAdrFiles(adrDirectory);
+    const prDiff = await getPrDiff(githubToken, prNumber);
+
+    core.info('Data fetching completed. Proceeding to evaluation...');
+
     // TODO: LlmJudge による監査
     // TODO: 違反時の Review Comment 投稿と setFailed
 
