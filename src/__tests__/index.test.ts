@@ -127,4 +127,24 @@ describe('Action Entrypoint (index.ts)', () => {
     // Assert
     expect(core.setFailed).toHaveBeenCalledWith('Gemini API Timeout');
   });
+
+  it('6. Diffサイズが上限(100,000文字)を超える場合、LLM評価をスキップして警告とともにPass扱いとすること', async () => {
+    // Arrange
+    github.context.eventName = 'pull_request';
+    github.context.payload = { pull_request: { number: 123 } };
+    (core.getInput as jest.Mock).mockReturnValue('dummy');
+    
+    // 100,001文字の巨大なDiffをモックする
+    const hugeDiff = 'a'.repeat(100001);
+    (getPrDiff as jest.Mock).mockResolvedValue(hugeDiff);
+
+    // Act
+    await run();
+
+    // Assert
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Diff size exceeds the limit'));
+    expect(mockEvaluate).not.toHaveBeenCalled();
+    expect(core.info).toHaveBeenCalledWith(expect.stringContaining('✅ ADR Check Passed'));
+    expect(core.setFailed).not.toHaveBeenCalled();
+  });
 });

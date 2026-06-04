@@ -1,5 +1,5 @@
 import * as github from '@actions/github';
-import { getPrDiff, postOrUpdateComment } from '../utils/github';
+import { getPrDiff, postOrUpdateComment, filterDiffNoise } from '../utils/github';
 
 // Octokitのモック設定
 const mockGetPullRequest = jest.fn();
@@ -27,6 +27,42 @@ jest.mock('@actions/github', () => ({
     },
   },
 }));
+
+describe('filterDiffNoise', () => {
+  it('1. package-lock.json や .svg などの自動生成・バイナリファイルのDiffチャンクを除外できること', () => {
+    const rawDiff = `diff --git a/package-lock.json b/package-lock.json
+index 123..456
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,3 +1,3 @@
+ {
+-  "version": "1.0.0"
++  "version": "1.0.1"
+ }
+diff --git a/src/index.ts b/src/index.ts
+index abc..def
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1,2 +1,3 @@
+ console.log("hello");
++console.log("world");
+diff --git a/public/icon.svg b/public/icon.svg
+index 789..012
+--- a/public/icon.svg
++++ b/public/icon.svg
+@@ -1,2 +1,2 @@
+-<svg></svg>
++<svg width="10"></svg>
+`;
+
+    const filtered = filterDiffNoise(rawDiff);
+
+    expect(filtered).not.toContain('package-lock.json');
+    expect(filtered).not.toContain('public/icon.svg');
+    expect(filtered).toContain('src/index.ts');
+    expect(filtered).toContain('console.log("world");');
+  });
+});
 
 describe('getPrDiff', () => {
   beforeEach(() => {
@@ -66,6 +102,23 @@ describe('getPrDiff', () => {
 
     // Act & Assert
     await expect(getPrDiff('token', 123)).rejects.toThrow('Failed to fetch PR diff: API Rate Limit Exceeded');
+  });
+
+  it('3. OctokitのAPIリクエストにタイムアウト（request.signal）が設定されていること', async () => {
+    // Arrange
+    const dummyToken = 'dummy-token';
+    const prNumber = 123;
+    mockGetPullRequest.mockResolvedValue({ data: 'diff' });
+
+    // Act
+    await getPrDiff(dummyToken, prNumber);
+
+    // Assert
+    expect(mockGetPullRequest).toHaveBeenCalledWith(expect.objectContaining({
+      request: expect.objectContaining({
+        signal: expect.any(AbortSignal)
+      })
+    }));
   });
 });
 
