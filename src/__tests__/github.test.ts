@@ -85,14 +85,14 @@ describe('getPrDiff', () => {
 
     // Assert
     expect(github.getOctokit).toHaveBeenCalledWith(dummyToken);
-    expect(mockGetPullRequest).toHaveBeenCalledWith({
+    expect(mockGetPullRequest).toHaveBeenCalledWith(expect.objectContaining({
       owner: 'test-owner',
       repo: 'test-repo',
       pull_number: prNumber,
       mediaType: {
         format: 'diff', // diff フォーマットを指定しているか検証
       },
-    });
+    }));
     expect(diff).toBe(expectedDiff);
   });
 

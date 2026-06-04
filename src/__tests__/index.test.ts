@@ -2,7 +2,7 @@ import * as core from '@actions/core';
 import * as github from '@actions/github';
 import { run } from '../index';
 import { loadAdrFiles } from '../utils/adrLoader';
-import { getPrDiff, postOrUpdateComment } from '../utils/github';
+import { getPrDiff, postOrUpdateComment, filterDiffNoise } from '../utils/github';
 import { LlmJudge } from '../LlmJudge';
 
 // モックの設定
@@ -14,7 +14,11 @@ jest.mock('@actions/github', () => ({
   },
 }));
 jest.mock('../utils/adrLoader');
-jest.mock('../utils/github');
+jest.mock('../utils/github', () => ({
+  getPrDiff: jest.fn(),
+  postOrUpdateComment: jest.fn(),
+  filterDiffNoise: jest.fn((diff: string) => diff),
+}));
 jest.mock('../LlmJudge');
 
 describe('Action Entrypoint (index.ts)', () => {

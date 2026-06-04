@@ -1,4 +1,11 @@
 /**
+ * Diffのノイズとなる自動生成ファイルやバイナリファイルのチャンクを除外します。
+ *
+ * @param diff 生のPR Diff文字列
+ * @returns フィルタリングされたDiff文字列
+ */
+export declare function filterDiffNoise(diff: string): string;
+/**
  * GitHub API (Octokit) を使用して、指定された Pull Request の Diff (差分) を取得します。
  *
  * @param token GitHub Personal Access Token (または GITHUB_TOKEN)
