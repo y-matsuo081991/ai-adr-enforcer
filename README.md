@@ -40,12 +40,47 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: AI-Driven ADR Enforcer
-        uses: y-matsuo081991/ai-adr-enforcer@v1
+        uses: y-matsuo081991/ai-adr-enforcer@v1.0.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           adr_directory: 'docs/adr' # ADRファイルが置かれているディレクトリ
+          fail_open: 'false' # API障害時にCIをパスさせる場合は 'true'
 ```
+
+## 💡 具体的な利用例 (Example in Action)
+
+このツールがどのように機能するか、架空のブログシステムを例に解説します。
+
+### 1. ADRの定義 (プロジェクトの法律)
+`docs/adr/001-database-selection.md` に以下のルールが定義されているとします。
+> **Decision:**  
+> 当プロジェクトのブログ記事データは、必ず **SQLite** を使用して保存すること。環境構築の容易さを最優先するため、MySQLやPostgreSQLなどの外部プロセスを必要とするDBは採用してはならない。
+
+### 2. 開発者のPull Request (違反コード)
+ある開発者が、よかれと思って `PostgreSQL` に接続するコードをコミットしました。
+
+```javascript
+// src/db.js
+- const db = new sqlite3.Database(':memory:');
++ const { Client } = require('pg');
++ const db = new Client({ connectionString: process.env.DATABASE_URL });
++ db.connect();
+```
+
+### 3. AIの監査と自動コメント (Enforcement)
+GitHub Actionがトリガーされると、AIがこの違反を検知し、PRの当該行に以下のような自動コメント（Review Comment）を投稿し、マージをブロック（Fail）します。
+
+> 🚨 **Architecture Violation Detected!**
+> 
+> **Reasoning:**
+> 提案されたコード変更は `pg` モジュールを導入し PostgreSQL に接続しようとしていますが、これはプロジェクトの規約に明確に違反しています。
+> 
+> **Reference ADR:**
+> `001-database-selection.md` (当プロジェクトのブログ記事データは、必ず SQLite を使用して保存すること。MySQLやPostgreSQLなどの外部プロセスを必要とするDBは採用してはならない。)
+> 
+> **Action Required:**
+> `PostgreSQL` クライアントを削除し、`sqlite3` を使用する元の実装に戻すか、プロジェクトリードに相談して ADR を更新（Supersede）してください。
 
 ## 🧠 アーキテクチャ (How it works)
 
@@ -56,12 +91,8 @@ jobs:
 3. **Eval:** LLMに対して「与えられたADRの制約に、このDiffは違反していないか？」と問いかけ、Pydantic (Structured Output) 形式で厳密な判定（Pass/Fail）と推論過程（Reasoning）を取得。
 4. **Action:** 違反があれば GitHub API (Octokit) を通じて Review Comment を投稿し、`core.setFailed()` でCIを落とす。
 
-## 👨‍💻 開発ロードマップ (Roadmap)
-- [ ] TypeScriptと `@actions/toolkit` によるベース基盤の実装
-- [ ] GitHub API (Octokit) を用いたPR Diffの取得処理
-- [ ] Gemini API による LLM-as-a-Judge の判定ロジック組み込み
-- [ ] PRへのインラインコメント自動投稿機能
-- [ ] GitHub Marketplace へのリリース
+## 👨‍💻 開発状況 (Development)
+現在の開発状況や今後の予定については、[ROADMAP.md](./ROADMAP.md) を参照してください。
 
 ---
 *Built to empower Engineering Managers and CTOs to scale organizational rules without scaling cognitive load.*

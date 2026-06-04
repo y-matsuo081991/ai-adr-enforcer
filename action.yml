@@ -1,0 +1,20 @@
+name: 'AI-Driven ADR Enforcer'
+description: 'Audits Pull Requests against Architecture Decision Records (ADRs) using Gemini LLM.'
+inputs:
+  github_token:
+    description: 'GitHub Token for accessing PRs and posting comments. Usually ${{ secrets.GITHUB_TOKEN }}'
+    required: true
+  gemini_api_key:
+    description: 'Google Gemini API Key for LLM inference.'
+    required: true
+  adr_directory:
+    description: 'Path to the directory containing ADR Markdown files.'
+    required: true
+    default: 'docs/adr'
+  fail_open:
+    description: 'If true, the action will not fail the CI if the Gemini API is down or times out (Fail-open). Defaults to false (Fail-closed).'
+    required: false
+    default: 'false'
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
