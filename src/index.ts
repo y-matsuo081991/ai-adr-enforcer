@@ -1,8 +1,10 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
 import { loadAdrFiles } from './utils/adrLoader';
-import { getPrDiff, postOrUpdateComment } from './utils/github';
+import { getPrDiff, postOrUpdateComment, filterDiffNoise } from './utils/github';
 import { LlmJudge } from './LlmJudge';
+
+const DIFF_SIZE_LIMIT = 100000;
 
 export async function run(): Promise<void> {
   let failOpen = false;
@@ -35,7 +37,17 @@ export async function run(): Promise<void> {
     
     // 3. データ取得フェーズ
     const adrContent = loadAdrFiles(adrDirectory);
-    const prDiff = await getPrDiff(githubToken, prNumber);
+    const rawPrDiff = await getPrDiff(githubToken, prNumber);
+    
+    // ADR-003: ノイズのフィルタリング
+    const prDiff = filterDiffNoise(rawPrDiff);
+
+    // ADR-003: Diffサイズのハードリミット検証
+    if (prDiff.length > DIFF_SIZE_LIMIT) {
+      core.warning(`Diff size exceeds the limit (${DIFF_SIZE_LIMIT} chars). Skipping LLM evaluation to prevent token exhaustion and timeouts.`);
+      core.info('✅ ADR Check Passed (Skipped due to size limit).');
+      return;
+    }
 
     core.info('Data fetching completed. Proceeding to evaluation...');
 

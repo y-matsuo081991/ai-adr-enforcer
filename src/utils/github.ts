@@ -4,6 +4,39 @@ import * as github from '@actions/github';
 const SIGNATURE = '<!-- ai-adr-enforcer-signature -->';
 
 /**
+ * Diffのノイズとなる自動生成ファイルやバイナリファイルのチャンクを除外します。
+ * 
+ * @param diff 生のPR Diff文字列
+ * @returns フィルタリングされたDiff文字列
+ */
+export function filterDiffNoise(diff: string): string {
+  // 除外対象のファイル拡張子またはファイル名のパターン
+  const excludePatterns = [
+    'package-lock\\.json',
+    'yarn\\.lock',
+    'pnpm-lock\\.yaml',
+    '\\.svg$',
+    '\\.png$',
+    '\\.jpg$',
+    '\\.map$',
+  ];
+  
+  const excludeRegex = new RegExp(`diff --git a/.* b/.*(${excludePatterns.join('|')})`, 'i');
+  
+  // diffの各ファイルごとのチャンクを分割 ('diff --git' で始まる)
+  const chunks = diff.split(/(?=^diff --git )/m);
+  
+  // パターンにマッチしないチャンクだけを残す
+  const filteredChunks = chunks.filter(chunk => {
+    // 最初の行をチェックして除外パターンに一致するか確認
+    const firstLine = chunk.split('\n')[0] || '';
+    return !excludeRegex.test(firstLine);
+  });
+  
+  return filteredChunks.join('');
+}
+
+/**
  * GitHub API (Octokit) を使用して、指定された Pull Request の Diff (差分) を取得します。
  * 
  * @param token GitHub Personal Access Token (または GITHUB_TOKEN)
@@ -24,6 +57,10 @@ export async function getPrDiff(token: string, prNumber: number): Promise<string
       pull_number: prNumber,
       mediaType: {
         format: 'diff',
+      },
+      request: {
+        // ADR-003: タイムアウト設定 (30,000ms)
+        signal: AbortSignal.timeout(30000),
       },
     });
 
