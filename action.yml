@@ -1,5 +1,8 @@
 name: 'AI-Driven ADR Enforcer'
 description: 'Audits Pull Requests against Architecture Decision Records (ADRs) using Gemini LLM.'
+branding:
+  icon: 'shield'
+  color: 'blue'
 inputs:
   github_token:
     description: 'GitHub Token for accessing PRs and posting comments. Usually ${{ secrets.GITHUB_TOKEN }}'
