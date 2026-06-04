@@ -68,4 +68,23 @@ describe('LlmJudge (LLM-as-a-Judge Core Engine)', () => {
     expect(result.decision).toBe('fail');
     expect(result.reasoning).toContain('MySQL'); // 理由に違反内容が含まれていること
   });
+
+  it('3. 指定されたモデル（gemini-3.1-pro-preview）でGemini APIが呼び出されること', async () => {
+    // Arrange
+    const dummyAdr = 'ADR 001';
+    const dummyDiff = '+ const a = 1;';
+
+    // Act
+    await judge.evaluate(dummyAdr, dummyDiff);
+
+    // Assert
+    // LlmJudgeの内部で生成されたGoogleGenAIインスタンスのgenerateContentが呼ばれた際の引数を検証
+    // TypeScriptのprivateプロパティにアクセスするためanyキャストを使用
+    const mockGenerateContent = (judge as any).ai.models.generateContent;
+    expect(mockGenerateContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'gemini-3.1-pro-preview',
+      })
+    );
+  });
 });

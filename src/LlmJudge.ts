@@ -50,7 +50,7 @@ Return your decision as "pass" or "fail", along with your reasoning.
 
     try {
       const response = await this.ai.models.generateContent({
-        model: 'gemini-2.5-pro',
+        model: 'gemini-3.1-pro-preview',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
