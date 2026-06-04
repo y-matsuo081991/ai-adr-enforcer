@@ -5,7 +5,7 @@ branding:
   color: 'blue'
 inputs:
   github_token:
-    description: 'GitHub Token for accessing PRs and posting comments. Usually ${{ secrets.GITHUB_TOKEN }}'
+    description: 'GitHub Token for accessing PRs and posting comments. Usually secrets.GITHUB_TOKEN'
     required: true
   gemini_api_key:
     description: 'Google Gemini API Key for LLM inference.'
