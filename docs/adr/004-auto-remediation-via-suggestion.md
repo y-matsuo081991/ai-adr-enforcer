@@ -32,6 +32,10 @@
     開発者は PR 画面上で AI の提案をレビューし、問題なければ GitHub の「Commit suggestion」ボタンをワンクリックして修正を取り込みます。AI はあくまで「提案（Suggest）」にとどまり、最終的なマージ権限と責任は人間（開発者）が持ちます。
 3.  **プロンプトとロールの分離 (Agentic Pipeline):**
     「違反の検知（Reviewer/Judge）」と「修正コードの生成（Coder/Remediator）」は責務が異なるため、プロンプト内で明確にステップを分けるか、将来的には内部で独立したエージェント関数としてパイプライン化する設計を基本とします。
+4.  **権限とセキュリティ (Least Privilege):**
+    Suggestion コメントの投稿は、常に GitHub Actions が発行する一時的な `GITHUB_TOKEN` (Bot権限) を用いて行います。AIシステム自身はリポジトリの永続的な書き込み権限（Personal Access Token等）を一切保持しません。
+5.  **生成失敗時のフェイルセーフ (Fail-Open):**
+    LLM が提案したコード（Suggestion）が Markdown の構文として破綻している場合や、生成処理自体がエラーとなった場合は、PR の CI をハングアップさせず、フォールバックとして警告（Warning）のみを出力する Fail-Open 戦略（ADR 002 に準拠）を踏襲します。
 
 ## 3. もたらされる結果 (Consequences)
 
