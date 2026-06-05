@@ -13,7 +13,7 @@ jest.mock('@google/genai', () => {
             if (contents.includes('sqlite3')) {
               return { text: JSON.stringify({ decision: 'pass', reasoning: 'SQLite is correctly used.' }) };
             } else {
-              return { text: JSON.stringify({ decision: 'fail', reasoning: 'MySQL usage violates the ADR constraint.' }) };
+              return { text: JSON.stringify({ decision: 'fail', reasoning: 'MySQL usage violates the ADR constraint.', suggestion: "import sqlite3 from 'sqlite3';\nconst db = new sqlite3.Database(':memory:');" }) };
             }
           }),
         },
@@ -48,6 +48,7 @@ describe('LlmJudge (LLM-as-a-Judge Core Engine)', () => {
     // Assert
     expect(result.decision).toBe('pass');
     expect(result.reasoning).toBeDefined();
+    // passの場合はsuggestionはなくてもよい（undefinedまたはnull）
   });
 
   it('2. ADRの制約に違反しているDiffに対しては、"fail" の結果を返すこと', async () => {
@@ -67,6 +68,26 @@ describe('LlmJudge (LLM-as-a-Judge Core Engine)', () => {
     // Assert
     expect(result.decision).toBe('fail');
     expect(result.reasoning).toContain('MySQL'); // 理由に違反内容が含まれていること
+  });
+
+  it('4. Failと判定した場合、GitHubのSuggestionに使える修正コード案(suggestion)が含まれていること', async () => {
+    // Arrange
+    const dummyAdr = `
+      # ADR 001: データベース選定
+      データベースには必ず SQLite を使用すること。MySQL等の他のDBは禁止。
+    `;
+    const violationDiff = `
+      + import mysql from 'mysql2';
+      + const connection = mysql.createConnection({host: 'localhost'});
+    `;
+
+    // Act
+    const result = await judge.evaluate(dummyAdr, violationDiff);
+
+    // Assert
+    expect(result.decision).toBe('fail');
+    expect(result.suggestion).toBeDefined();
+    expect(result.suggestion).toContain('sqlite3'); // 修正案にSQLiteを使うコードが含まれていること
   });
 
   it('3. 指定されたモデル（gemini-3.1-pro-preview）でGemini APIが呼び出されること', async () => {
