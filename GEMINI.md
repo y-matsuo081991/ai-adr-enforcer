@@ -8,6 +8,7 @@
 本プロジェクトは TypeScript を使用した GitHub Action である。
 GitHub Actions は実行時に `node_modules` をインストールせず、単一の JavaScript ファイル（通常 `dist/index.js`）を実行する仕様となっている。
 
+*   **ALWAYS [Clean Before Build]:** ビルドを実行する際は、古いチャンクファイルや不要な `.d.ts` ファイルが `dist/` に残留（Ghost Files）し、CIエラーを引き起こすのを防ぐため、**必ずビルド前に `dist/` ディレクトリを削除（クリーンアップ）すること。** （※ `package.json` の `build` スクリプトに `rimraf dist` が組み込まれているため、原則として `npm run build` を使用すること）
 *   **ALWAYS [Compile before Commit]:** `src/` 配下の TypeScript コードを変更した場合、Git にコミットする前に**必ず `@vercel/ncc` 等を用いてコンパイルおよびバンドルを行い、生成された `dist/` フォルダ内のファイルも同時にコミットせよ。**
     *   *AIへの指示:* 「実装が完了しました」と報告する前に、「ビルドコマンド（例: `npm run build`）を実行し、生成されたJSファイルをGitにステージしたか？」を必ず自己確認すること。
 

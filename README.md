@@ -19,9 +19,10 @@ AIがリポジトリ内のすべてのADRを読み込み、PRのDiff（差分コ
 ## ✨ 主な機能 (Features)
 
 1. **Context-Aware Review:** リポジトリ内の `docs/adr/` 等のMarkdownファイルを動的に読み込み、プロジェクト固有のルールを学習。
-2. **LLM-as-a-Judge:** 変更されたコード（Diff）をGemini 2.5 Pro等の高度なモデルで監査。「なぜ違反しているのか」をADRを引用して論理的に指摘。
-3. **Automated Enforcement:** 違反（MUST FIX / SHOULD FIX レベルの技術的負債）を発見した場合、PRにインラインコメントを残し、**Status Check を `Fail` にしてマージをブロック**。
-4. **Zero-Configuration Setup:** 既存のプロジェクトのYAMLに数行追加するだけで、今日からアーキテクチャの自動警察が稼働。
+2. **LLM-as-a-Judge:** 変更されたコード（Diff）をGemini 3.1 Pro 等の高度なモデルで監査。「なぜ違反しているのか」をADRを引用して論理的に指摘。
+3. **Auto-remediation (自己修復):** 違反を検知した際、AIが制約を満たす修正コード（Suggestion）を自動生成し、**ワンクリックでコミット可能な形でPRに提案**。
+4. **Automated Enforcement:** 違反（MUST FIX / SHOULD FIX レベルの技術的負債）を発見した場合、PRにインラインコメントを残し、**Status Check を `Fail` にしてマージをブロック**。
+5. **Zero-Configuration Setup:** 既存のプロジェクトのYAMLに数行追加するだけで、今日からアーキテクチャの自動警察が稼働。
 
 ## 🚀 使い方 (Usage)
 
@@ -68,19 +69,21 @@ jobs:
 + db.connect();
 ```
 
-### 3. AIの監査と自動コメント (Enforcement)
-GitHub Actionがトリガーされると、AIがこの違反を検知し、PRの当該行に以下のような自動コメント（Review Comment）を投稿し、マージをブロック（Fail）します。
+### 3. AIの監査と自動修復の提案 (Enforcement & Auto-remediation)
+GitHub Actionがトリガーされると、AIがこの違反を検知し、PRに以下のような自動コメントを投稿し、マージをブロック（Fail）します。
 
 > 🚨 **Architecture Violation Detected!**
 > 
-> **Reasoning:**
 > 提案されたコード変更は `pg` モジュールを導入し PostgreSQL に接続しようとしていますが、これはプロジェクトの規約に明確に違反しています。
+> Reference ADR: `001-database-selection.md`
 > 
-> **Reference ADR:**
-> `001-database-selection.md` (当プロジェクトのブログ記事データは、必ず SQLite を使用して保存すること。MySQLやPostgreSQLなどの外部プロセスを必要とするDBは採用してはならない。)
-> 
-> **Action Required:**
-> `PostgreSQL` クライアントを削除し、`sqlite3` を使用する元の実装に戻すか、プロジェクトリードに相談して ADR を更新（Supersede）してください。
+> ### 💡 Auto-remediation Suggestion
+> \`\`\`suggestion
+> const sqlite3 = require('sqlite3').verbose();
+> const db = new sqlite3.Database(':memory:');
+> \`\`\`
+
+開発者は、GitHubのPR画面上に表示される **「Commit suggestion」ボタン** をクリックするだけで、AIの提案した修正コードを安全にブランチへ取り込むことができます。
 
 ## 🧠 アーキテクチャ (How it works)
 

@@ -60,7 +60,13 @@ export async function run(): Promise<void> {
       core.info('✅ ADR Check Passed: No architectural violations detected.');
     } else {
       core.info('❌ ADR Violation detected. Posting comment to PR...');
-      const commentBody = `## 🚨 Architecture Violation Detected\n\n${result.reasoning}`;
+      let commentBody = `## 🚨 Architecture Violation Detected\n\n${result.reasoning}`;
+      
+      // Auto-remediation Suggestion を付与 (ADR 004)
+      if (result.suggestion) {
+        commentBody += `\n\n### 💡 Auto-remediation Suggestion\n\`\`\`suggestion\n${result.suggestion}\n\`\`\``;
+      }
+
       await postOrUpdateComment(githubToken, prNumber, commentBody);
       
       // CIを失敗させる
