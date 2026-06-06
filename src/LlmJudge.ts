@@ -19,19 +19,25 @@ export class LlmJudge {
   }
 
   async evaluate(adrContent: string, prDiff: string): Promise<JudgeResult> {
-    const prompt = `
+    const systemPrompt = `
 You are an expert Software Architect and Code Reviewer.
 Your task is to audit the provided Pull Request Diff against the given Architecture Decision Records (ADRs).
 
-[ADR]
+<adr_documents>
 ${adrContent}
+</adr_documents>
 
-[PR Diff]
-${prDiff}
-
-Please determine if the PR Diff violates any rules or constraints defined in the ADR.
+Please determine if the PR Diff violates any rules or constraints defined in the <adr_documents>.
 Return your decision as "pass" or "fail", along with your reasoning.
 If the decision is "fail", you MUST provide a "suggestion" containing the corrected code snippet that resolves the violation. The suggestion should be ready to be used in a GitHub Review Comment suggestion block (do not include the markdown backticks \`\`\`suggestion itself, just the code).
+`;
+
+    const userMessage = `
+Please audit the following Pull Request Diff:
+
+<pull_request_diff>
+${prDiff}
+</pull_request_diff>
 `;
 
     // Gemini APIに要求するJSONのスキーマ定義（Structured Output）
@@ -58,8 +64,9 @@ If the decision is "fail", you MUST provide a "suggestion" containing the correc
     try {
       const response = await this.ai.models.generateContent({
         model: 'gemini-3.1-pro-preview',
-        contents: prompt,
+        contents: userMessage,
         config: {
+          systemInstruction: systemPrompt,
           responseMimeType: 'application/json',
           responseSchema: responseSchema,
         },
@@ -77,15 +84,15 @@ If the decision is "fail", you MUST provide a "suggestion" containing the correc
         const rawJson = JSON.parse(cleanText);
         return JudgeResultSchema.parse(rawJson);
       } catch (parseError) {
-        // セキュリティ制約 (GEMINI.md): LLMの推論結果には機密情報が含まれる可能性があるため、
-        // 生のテキストやレスポンス内容は絶対にログに出力しないこと。
+        if (parseError instanceof z.ZodError) {
+           // ADR-007: セキュリティ保護のため、Zodの生メッセージ（機密情報漏洩リスク）をマスクする
+           throw new Error('Failed to validate LLM response schema. The response format was invalid.');
+        }
         throw parseError;
       }
       
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        throw new Error(`Failed to validate LLM response schema: ${error.message}`);
-      }
+      // 呼び出し元の catch へそのまま伝播
       throw error;
     }
   }

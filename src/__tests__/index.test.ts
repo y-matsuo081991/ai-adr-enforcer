@@ -4,6 +4,7 @@ import { run } from '../index';
 import { loadAdrFiles } from '../utils/adrLoader';
 import { getPrDiff, postOrUpdateComment, filterDiffNoise } from '../utils/github';
 import { LlmJudge } from '../LlmJudge';
+import { z } from 'zod';
 
 // モックの設定
 jest.mock('@actions/core');
@@ -18,6 +19,7 @@ jest.mock('../utils/github', () => ({
   getPrDiff: jest.fn(),
   postOrUpdateComment: jest.fn(),
   filterDiffNoise: jest.fn((diff: string) => diff),
+  sanitizeAiResponse: jest.fn((text: string) => text),
 }));
 jest.mock('../LlmJudge');
 
@@ -132,11 +134,14 @@ describe('Action Entrypoint (index.ts)', () => {
     expect(core.setFailed).toHaveBeenCalledWith('Gemini API Timeout');
   });
 
-  it('6. Diffサイズが上限(100,000文字)を超える場合、LLM評価をスキップして警告とともにPass扱いとすること', async () => {
+  it('6. [ADR-006] Diffサイズが上限を超える場合、原則 Fail-Closed となりCIを落とすこと', async () => {
     // Arrange
     github.context.eventName = 'pull_request';
     github.context.payload = { pull_request: { number: 123 } };
-    (core.getInput as jest.Mock).mockReturnValue('dummy');
+    (core.getInput as jest.Mock).mockImplementation((name: string) => {
+      if (name === 'fail_open') return 'false'; // デフォルトはFail-Closed
+      return 'dummy';
+    });
     
     // 100,001文字の巨大なDiffをモックする
     const hugeDiff = 'a'.repeat(100001);
@@ -148,7 +153,27 @@ describe('Action Entrypoint (index.ts)', () => {
     // Assert
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Diff size exceeds the limit'));
     expect(mockEvaluate).not.toHaveBeenCalled();
-    expect(core.info).toHaveBeenCalledWith(expect.stringContaining('✅ ADR Check Passed'));
+    // 以前は info で pass していたが、ADR 006 により setFailed になるべき
+    expect(core.setFailed).toHaveBeenCalledWith(expect.stringContaining('Diff size exceeds the limit'));
+  });
+
+  it('7. [ADR-005] PRに bypass-adr ラベルが付いている場合、監査をスキップしてPassすること', async () => {
+    // Arrange
+    github.context.eventName = 'pull_request';
+    github.context.payload = { 
+      pull_request: { 
+        number: 123,
+        labels: [{ name: 'bug' }, { name: 'bypass-adr' }] // bypassラベルを付与
+      } 
+    };
+
+    // Act
+    await run();
+
+    // Assert
+    expect(core.info).toHaveBeenCalledWith(expect.stringContaining('ADR Check skipped due to "bypass-adr" label'));
+    expect(core.getInput).not.toHaveBeenCalled(); // 早期リターンによりInputも取得しない
+    expect(loadAdrFiles).not.toHaveBeenCalled();
     expect(core.setFailed).not.toHaveBeenCalled();
   });
 });

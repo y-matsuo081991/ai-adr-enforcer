@@ -1,5 +1,5 @@
 import * as github from '@actions/github';
-import { getPrDiff, postOrUpdateComment, filterDiffNoise } from '../utils/github';
+import { getPrDiff, postOrUpdateComment, filterDiffNoise, sanitizeAiResponse } from '../utils/github';
 
 // Octokitのモック設定
 const mockGetPullRequest = jest.fn();
@@ -27,6 +27,32 @@ jest.mock('@actions/github', () => ({
     },
   },
 }));
+
+describe('sanitizeAiResponse (ADR-009)', () => {
+  it('1. Markdownの画像タグがバッククォートで無効化されること', () => {
+    const input = 'This is an image ![malicious image](http://attacker.com/img.png) here.';
+    const expected = 'This is an image `[IMAGE: malicious image](http://attacker.com/img.png)` here.';
+    expect(sanitizeAiResponse(input)).toBe(expected);
+  });
+
+  it('2. Markdownのリンクタグがバッククォートで無効化されること', () => {
+    const input = 'Click [here](https://phishing.example.com) to login.';
+    const expected = 'Click `[LINK: here](https://phishing.example.com)` to login.';
+    expect(sanitizeAiResponse(input)).toBe(expected);
+  });
+
+  it('3. むき出しのURLがバッククォートで無効化されること', () => {
+    const input = 'Visit https://malware.com for details or http://bad.org.';
+    const expected = 'Visit `https://malware.com` for details or `http://bad.org`.';
+    expect(sanitizeAiResponse(input)).toBe(expected);
+  });
+
+  it('4. 複数のインジェクションが混在していてもすべて無効化されること', () => {
+    const input = 'Check ![img](http://a.com) and [link](https://b.com) and http://c.com.';
+    const expected = 'Check `[IMAGE: img](http://a.com)` and `[LINK: link](https://b.com)` and `http://c.com`.';
+    expect(sanitizeAiResponse(input)).toBe(expected);
+  });
+});
 
 describe('filterDiffNoise', () => {
   it('1. package-lock.json や .svg などの自動生成・バイナリファイルのDiffチャンクを除外できること', () => {
@@ -127,7 +153,7 @@ describe('postOrUpdateComment', () => {
     jest.clearAllMocks();
   });
 
-  it('1. 過去のAIコメントが存在しない場合、新規でコメントを作成すること', async () => {
+  it('1. 過去のAIコメントが存在しない場合、新規でコメントを作成し免責事項が含まれること', async () => {
     // Arrange
     mockListComments.mockResolvedValue({ data: [] }); // 既存コメントなし
 
@@ -142,6 +168,10 @@ describe('postOrUpdateComment', () => {
       issue_number: 123,
       body: expect.stringContaining('New Violation Detected'),
     });
+    // ADR-009 Disclaimer check
+    expect(mockCreateComment).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.stringContaining('Disclaimer'),
+    }));
     expect(mockUpdateComment).not.toHaveBeenCalled();
   });
 

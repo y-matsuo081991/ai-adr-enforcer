@@ -1,4 +1,5 @@
 import { LlmJudge } from '../LlmJudge';
+import { z } from 'zod';
 
 // @google/genai モジュールをモックし、外部APIを叩かずにテストを完結させる
 jest.mock('@google/genai', () => {
@@ -9,6 +10,11 @@ jest.mock('@google/genai', () => {
         models: {
           generateContent: jest.fn().mockImplementation(async (params) => {
             const contents = params.contents;
+            // エラー誘発用の特殊な入力
+            if (contents.includes('MAKE_IT_INVALID_JSON')) {
+              return { text: '{"decision": "pass", "reasoning": 123}' }; // reasoningが文字列でないためZodエラー
+            }
+            
             // Diffの中に 'sqlite3' という文字列が含まれていればPassとして返す（ダミーロジック）
             if (contents.includes('sqlite3')) {
               return { text: JSON.stringify({ decision: 'pass', reasoning: 'SQLite is correctly used.' }) };
@@ -70,6 +76,28 @@ describe('LlmJudge (LLM-as-a-Judge Core Engine)', () => {
     expect(result.reasoning).toContain('MySQL'); // 理由に違反内容が含まれていること
   });
 
+  it('3. [ADR-008] LLMへのリクエストにおいて、System Instruction と User Message が分離されていること', async () => {
+    // Arrange
+    const dummyAdr = 'ADR 001';
+    const dummyDiff = '+ const a = 1;';
+
+    // Act
+    await judge.evaluate(dummyAdr, dummyDiff);
+
+    // Assert
+    // LlmJudgeの内部で生成されたGoogleGenAIインスタンスのgenerateContentが呼ばれた際の引数を検証
+    const mockGenerateContent = (judge as any).ai.models.generateContent;
+    expect(mockGenerateContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'gemini-3.1-pro-preview',
+        contents: expect.stringContaining(dummyDiff), // contentsにはUser Message (Diff)が入る
+        config: expect.objectContaining({
+          systemInstruction: expect.stringContaining(dummyAdr), // config.systemInstruction にADRが入る
+        })
+      })
+    );
+  });
+
   it('4. Failと判定した場合、GitHubのSuggestionに使える修正コード案(suggestion)が含まれていること', async () => {
     // Arrange
     const dummyAdr = `
@@ -90,22 +118,13 @@ describe('LlmJudge (LLM-as-a-Judge Core Engine)', () => {
     expect(result.suggestion).toContain('sqlite3'); // 修正案にSQLiteを使うコードが含まれていること
   });
 
-  it('3. 指定されたモデル（gemini-3.1-pro-preview）でGemini APIが呼び出されること', async () => {
+  it('5. [ADR-007] ZodErrorが発生した場合、機密情報を含む生のエラーメッセージはマスクされ、定型文がスローされること', async () => {
     // Arrange
-    const dummyAdr = 'ADR 001';
-    const dummyDiff = '+ const a = 1;';
+    const dummyAdr = 'ADR 001: DB contains secret user data';
+    const invalidDiff = 'MAKE_IT_INVALID_JSON'; // モックが不正なJSONを返すように仕向ける
 
-    // Act
-    await judge.evaluate(dummyAdr, dummyDiff);
-
-    // Assert
-    // LlmJudgeの内部で生成されたGoogleGenAIインスタンスのgenerateContentが呼ばれた際の引数を検証
-    // TypeScriptのprivateプロパティにアクセスするためanyキャストを使用
-    const mockGenerateContent = (judge as any).ai.models.generateContent;
-    expect(mockGenerateContent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: 'gemini-3.1-pro-preview',
-      })
-    );
+    // Act & Assert
+    // ZodErrorが投げられた際、生の値が含まれていない静的メッセージであることを確認する
+    await expect(judge.evaluate(dummyAdr, invalidDiff)).rejects.toThrow('Failed to validate LLM response schema. The response format was invalid.');
   });
 });
