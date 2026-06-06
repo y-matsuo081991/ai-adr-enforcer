@@ -22,7 +22,8 @@ AIがリポジトリ内のすべてのADRを読み込み、PRのDiff（差分コ
 2. **LLM-as-a-Judge:** 変更されたコード（Diff）をGemini 3.1 Pro 等の高度なモデルで監査。「なぜ違反しているのか」をADRを引用して論理的に指摘。
 3. **Auto-remediation (自己修復):** 違反を検知した際、AIが制約を満たす修正コード（Suggestion）を自動生成し、**ワンクリックでコミット可能な形でPRに提案**。
 4. **Automated Enforcement:** 違反（MUST FIX / SHOULD FIX レベルの技術的負債）を発見した場合、PRにインラインコメントを残し、**Status Check を `Fail` にしてマージをブロック**。
-5. **Zero-Configuration Setup:** 既存のプロジェクトのYAMLに数行追加するだけで、今日からアーキテクチャの自動警察が稼働。
+5. **Escape Hatch (脱出ハッチ):** AIの誤検知時や緊急対応時に、特定のラベル（`bypass-adr`）を付与するだけでAIの監査を安全に強制スキップ可能。
+6. **Enterprise-Grade Security:** Prompt Injection対策（System Instructionの分離）や、ハルシネーションによるフィッシングリンクを無効化する出力サニタイズ機構を標準搭載。
 
 ## 🚀 使い方 (Usage)
 
@@ -93,9 +94,3 @@ GitHub Actionがトリガーされると、AIがこの違反を検知し、PRに
 2. **RAG (Retrieval):** 指定された `adr_directory` から `.md` ファイルを収集し、システムプロンプトとして結合。
 3. **Eval:** LLMに対して「与えられたADRの制約に、このDiffは違反していないか？」と問いかけ、Pydantic (Structured Output) 形式で厳密な判定（Pass/Fail）と推論過程（Reasoning）を取得。
 4. **Action:** 違反があれば GitHub API (Octokit) を通じて Review Comment を投稿し、`core.setFailed()` でCIを落とす。
-
-## 👨‍💻 開発状況 (Development)
-現在の開発状況や今後の予定については、[ROADMAP.md](./ROADMAP.md) を参照してください。
-
----
-*Built to empower Engineering Managers and CTOs to scale organizational rules without scaling cognitive load.*

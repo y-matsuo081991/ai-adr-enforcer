@@ -1,7 +1,7 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
 import { loadAdrFiles } from './utils/adrLoader';
-import { getPrDiff, postOrUpdateComment, filterDiffNoise } from './utils/github';
+import { getPrDiff, postOrUpdateComment, filterDiffNoise, sanitizeAiResponse } from './utils/github';
 import { LlmJudge } from './LlmJudge';
 
 const DIFF_SIZE_LIMIT = 100000;
@@ -15,6 +15,13 @@ export async function run(): Promise<void> {
     // 1. PRイベント以外で実行された場合は早期リターン
     if (context.eventName !== 'pull_request') {
       core.info('This action only runs on pull_request events. Skipping.');
+      return;
+    }
+
+    // ADR-005: 脱出ハッチ (Escape Hatch)
+    const labels = context.payload.pull_request?.labels?.map((l: any) => l.name) || [];
+    if (labels.includes('bypass-adr')) {
+      core.info('✅ ADR Check skipped due to "bypass-adr" label. Forcing Pass.');
       return;
     }
 
@@ -42,11 +49,16 @@ export async function run(): Promise<void> {
     // ADR-003: ノイズのフィルタリング
     const prDiff = filterDiffNoise(rawPrDiff);
 
-    // ADR-003: Diffサイズのハードリミット検証
+    // ADR-006: Diffサイズのハードリミット検証 (Fail-Closed default)
     if (prDiff.length > DIFF_SIZE_LIMIT) {
-      core.warning(`Diff size exceeds the limit (${DIFF_SIZE_LIMIT} chars). Skipping LLM evaluation to prevent token exhaustion and timeouts.`);
-      core.info('✅ ADR Check Passed (Skipped due to size limit).');
-      return;
+      const msg = `Diff size exceeds the limit (${DIFF_SIZE_LIMIT} chars). Skipping LLM evaluation to prevent token exhaustion.`;
+      core.warning(msg);
+      if (failOpen) {
+        core.info('✅ ADR Check Passed (Fail-Open active).');
+        return;
+      } else {
+        throw new Error(msg); // Fail-Closed
+      }
     }
 
     core.info('Data fetching completed. Proceeding to evaluation...');
@@ -60,10 +72,15 @@ export async function run(): Promise<void> {
       core.info('✅ ADR Check Passed: No architectural violations detected.');
     } else {
       core.info('❌ ADR Violation detected. Posting comment to PR...');
-      let commentBody = `## 🚨 Architecture Violation Detected\n\n${result.reasoning}`;
+      
+      // ADR-009: リンク等のサニタイズ
+      const sanitizedReasoning = sanitizeAiResponse(result.reasoning);
+      
+      let commentBody = `## 🚨 Architecture Violation Detected\n\n${sanitizedReasoning}`;
       
       // Auto-remediation Suggestion を付与 (ADR 004)
       if (result.suggestion) {
+        // suggestionはコードブロックになるためサニタイズ不要とするが、念のため
         commentBody += `\n\n### 💡 Auto-remediation Suggestion\n\`\`\`suggestion\n${result.suggestion}\n\`\`\``;
       }
 
