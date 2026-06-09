@@ -29,7 +29,7 @@ export async function run(): Promise<void> {
     const adrDirectory = core.getInput('adr_directory', { required: true });
     failOpen = core.getInput('fail_open') === 'true';
     const maxDiffSizeInput = core.getInput('max_diff_size');
-    const maxDiffSize = maxDiffSizeInput ? parseInt(maxDiffSizeInput, 10) : 300000;
+    const maxDiffSize = maxDiffSizeInput ? parseInt(maxDiffSizeInput, 10) : 100000;
 
     // 【NFR: Privacy】 ログ出力のマスキング機能 (Sensitive Data Masking)
     core.setSecret(githubToken);

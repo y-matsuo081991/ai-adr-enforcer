@@ -140,12 +140,12 @@ describe('Action Entrypoint (index.ts)', () => {
     github.context.payload = { pull_request: { number: 123 } };
     (core.getInput as jest.Mock).mockImplementation((name: string) => {
       if (name === 'fail_open') return 'false'; // デフォルトはFail-Closed
-      if (name === 'max_diff_size') return ''; // デフォルト300000を使用
+      if (name === 'max_diff_size') return ''; // デフォルト100000を使用
       return 'dummy';
     });
     
-    // 300,001文字の巨大なDiffをモックする
-    const hugeDiff = 'a'.repeat(300001);
+    // 100,001文字の巨大なDiffをモックする
+    const hugeDiff = 'a'.repeat(100001);
     (getPrDiff as jest.Mock).mockResolvedValue(hugeDiff);
 
     // Act

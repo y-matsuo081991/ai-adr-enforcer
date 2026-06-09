@@ -5,7 +5,7 @@ import { z } from 'zod';
 const JudgeResultSchema = z.object({
   decision: z.enum(['pass', 'fail']),
   reasoning: z.string(),
-  suggestion: z.string().optional(),
+  suggestion: z.string().nullable().optional(),
 });
 
 export type JudgeResult = z.infer<typeof JudgeResultSchema>;
@@ -69,6 +69,7 @@ ${prDiff}
           systemInstruction: systemPrompt,
           responseMimeType: 'application/json',
           responseSchema: responseSchema,
+          httpOptions: { timeout: 30000 }, // 30秒のタイムアウト（デッドロック防止）
         },
       });
 

@@ -5,7 +5,7 @@ declare const JudgeResultSchema: z.ZodObject<{
         fail: "fail";
     }>;
     reasoning: z.ZodString;
-    suggestion: z.ZodOptional<z.ZodString>;
+    suggestion: z.ZodOptional<z.ZodNullable<z.ZodString>>;
 }, z.core.$strip>;
 export type JudgeResult = z.infer<typeof JudgeResultSchema>;
 export declare class LlmJudge {

@@ -127,4 +127,27 @@ describe('LlmJudge (LLM-as-a-Judge Core Engine)', () => {
     // ZodErrorが投げられた際、生の値が含まれていない静的メッセージであることを確認する
     await expect(judge.evaluate(dummyAdr, invalidDiff)).rejects.toThrow('Failed to validate LLM response schema. The response format was invalid.');
   });
+
+  it('6. LLMが指摘なし(suggestionがnull)を返した場合、ZodErrorが発生せず正常にパースできること', async () => {
+    // Arrange: モックが suggestion: null を返すように設定
+    const dummyAdr = 'ADR 001';
+    const dummyDiff = '+ const x = 1;';
+    
+    // 一時的にモックの実装を上書き
+    const mockGenerateContent = (judge as any).ai.models.generateContent;
+    mockGenerateContent.mockResolvedValueOnce({
+      text: JSON.stringify({
+        decision: 'pass',
+        reasoning: 'ADR compliant',
+        suggestion: null // 従来はここで ZodError が発生していた
+      })
+    });
+
+    // Act
+    const result = await judge.evaluate(dummyAdr, dummyDiff);
+
+    // Assert
+    expect(result.decision).toBe('pass');
+    expect(result.suggestion).toBeNull();
+  });
 });
