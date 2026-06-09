@@ -28,5 +28,13 @@ export function loadAdrFiles(directoryPath: string): string {
     combinedContent += content + '\n\n';
   }
 
-  return combinedContent.trim();
+  combinedContent = combinedContent.trim();
+
+  // ADR-011: ADR ドキュメントの合計サイズ（文字数）に安全な上限値を設定する (Fail-Closed)
+  const MAX_ADR_SIZE = 100000;
+  if (combinedContent.length > MAX_ADR_SIZE) {
+    throw new Error('ADR documents size exceeds the maximum limit');
+  }
+
+  return combinedContent;
 }

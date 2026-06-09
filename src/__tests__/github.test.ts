@@ -88,6 +88,36 @@ index 789..012
     expect(filtered).toContain('src/index.ts');
     expect(filtered).toContain('console.log("world");');
   });
+
+  it('2. [ADR-011] Case-Insensitiveで拡張子（例: .PNG, .Jpg）を除外できること', () => {
+    const rawDiff = `diff --git a/public/logo.PNG b/public/logo.PNG
+index 123..456
+--- a/public/logo.PNG
++++ b/public/logo.PNG
+@@ -1,2 +1,2 @@
+-<img/>
++<img width="10"/>
+diff --git a/public/photo.Jpg b/public/photo.Jpg
+index abc..def
+--- a/public/photo.Jpg
++++ b/public/photo.Jpg
+@@ -1,2 +1,2 @@
+-<img/>
++<img width="10"/>
+diff --git a/src/index.ts b/src/index.ts
+index abc..def
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1,2 +1,3 @@
+ console.log("test");
+`;
+
+    const filtered = filterDiffNoise(rawDiff);
+
+    expect(filtered).not.toContain('public/logo.PNG');
+    expect(filtered).not.toContain('public/photo.Jpg');
+    expect(filtered).toContain('src/index.ts');
+  });
 });
 
 describe('getPrDiff', () => {

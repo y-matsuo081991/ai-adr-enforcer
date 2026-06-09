@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { z } from 'zod';
+import * as crypto from 'crypto';
 
 // LLMからの出力を検証・パースするためのZodスキーマ
 const JudgeResultSchema = z.object({
@@ -19,6 +20,16 @@ export class LlmJudge {
   }
 
   async evaluate(adrContent: string, prDiff: string): Promise<JudgeResult> {
+    // ADR-011: 動的サニタイズ（インジェクション対策バリデーション）
+    if (prDiff.includes('---BEGIN_DIFF_')) {
+      throw new Error('Potential Prompt Injection detected: Diff contains reserved delimiter pattern.');
+    }
+
+    // ADR-011: Randomized Delimiters（ランダム化された区切り文字）
+    const delimiterId = crypto.randomUUID().replace(/-/g, '').substring(0, 16);
+    const beginDelimiter = `---BEGIN_DIFF_${delimiterId}---`;
+    const endDelimiter = `---END_DIFF_${delimiterId}---`;
+
     const systemPrompt = `
 You are an expert Software Architect and Code Reviewer.
 Your task is to audit the provided Pull Request Diff against the given Architecture Decision Records (ADRs).
@@ -35,9 +46,9 @@ If the decision is "fail", you MUST provide a "suggestion" containing the correc
     const userMessage = `
 Please audit the following Pull Request Diff:
 
-<pull_request_diff>
+${beginDelimiter}
 ${prDiff}
-</pull_request_diff>
+${endDelimiter}
 `;
 
     // Gemini APIに要求するJSONのスキーマ定義（Structured Output）

@@ -42,4 +42,19 @@ describe('adrLoader', () => {
     // Act & Assert
     expect(() => loadAdrFiles('invalid/path')).toThrow('ADR directory not found');
   });
+
+  it('3. [ADR-011] 取得したADRドキュメントの合計サイズが制限(デフォルト100,000文字)を超過した場合、エラーをスローすること', () => {
+    // Arrange
+    const dummyDir = 'dummy/docs/adr';
+    (fs.existsSync as jest.Mock).mockReturnValue(true);
+    (fs.readdirSync as jest.Mock).mockReturnValue(['001-large.md']);
+    (fs.statSync as jest.Mock).mockImplementation(() => ({ isDirectory: () => false }));
+    
+    // 制限を超える大きな文字列を返す
+    const largeContent = 'a'.repeat(100001);
+    (fs.readFileSync as jest.Mock).mockReturnValue(largeContent);
+
+    // Act & Assert
+    expect(() => loadAdrFiles(dummyDir)).toThrow('ADR documents size exceeds the maximum limit');
+  });
 });

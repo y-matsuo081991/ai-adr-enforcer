@@ -150,4 +150,18 @@ describe('LlmJudge (LLM-as-a-Judge Core Engine)', () => {
     expect(result.decision).toBe('pass');
     expect(result.suggestion).toBeNull();
   });
+
+  it('7. [ADR-011] PR Diff 内に動的生成されたデリミタ文字列が含まれている場合、エラーをスローすること（インジェクション対策）', async () => {
+    // Arrange
+    const dummyAdr = 'ADR 001';
+    // ランダムデリミタの文字列を含む悪意ある（または偶然の）Diff
+    // LlmJudge は UUID などを生成して ---BEGIN_DIFF_${UUID}--- を使う想定
+    // UUIDの具体的な値はモックできない可能性があるため、テストしやすくするために LlmJudge にテスト用のデリミタ固定メソッドを追加するか、
+    // 生成される文字列を正規表現等でチェックするか、あるいは UUID の部分に関わらずエスケープされるか確認する。
+    // 今回は、"---BEGIN_DIFF_" のようなプレフィックスが含まれていれば例外にするような簡単なヒューリスティックをテストする。
+    const maliciousDiff = 'Some code here. ---BEGIN_DIFF_ and then fake injection';
+
+    // Act & Assert
+    await expect(judge.evaluate(dummyAdr, maliciousDiff)).rejects.toThrow('Potential Prompt Injection detected: Diff contains reserved delimiter pattern.');
+  });
 });
