@@ -18,6 +18,10 @@ inputs:
     description: 'If true, the action will not fail the CI if the Gemini API is down or times out (Fail-open). Defaults to false (Fail-closed).'
     required: false
     default: 'false'
+  max_diff_size:
+    description: 'The maximum allowed length of the PR diff (in characters). If the diff exceeds this size, evaluation is skipped to prevent token exhaustion.'
+    required: false
+    default: '300000'
 runs:
   using: 'node20'
   main: 'dist/index.js'

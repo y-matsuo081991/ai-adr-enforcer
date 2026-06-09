@@ -4,8 +4,6 @@ import { loadAdrFiles } from './utils/adrLoader';
 import { getPrDiff, postOrUpdateComment, filterDiffNoise, sanitizeAiResponse } from './utils/github';
 import { LlmJudge } from './LlmJudge';
 
-const DIFF_SIZE_LIMIT = 100000;
-
 export async function run(): Promise<void> {
   let failOpen = false;
 
@@ -30,6 +28,8 @@ export async function run(): Promise<void> {
     const geminiApiKey = core.getInput('gemini_api_key', { required: true });
     const adrDirectory = core.getInput('adr_directory', { required: true });
     failOpen = core.getInput('fail_open') === 'true';
+    const maxDiffSizeInput = core.getInput('max_diff_size');
+    const maxDiffSize = maxDiffSizeInput ? parseInt(maxDiffSizeInput, 10) : 300000;
 
     // 【NFR: Privacy】 ログ出力のマスキング機能 (Sensitive Data Masking)
     core.setSecret(githubToken);
@@ -50,8 +50,8 @@ export async function run(): Promise<void> {
     const prDiff = filterDiffNoise(rawPrDiff);
 
     // ADR-006: Diffサイズのハードリミット検証 (Fail-Closed default)
-    if (prDiff.length > DIFF_SIZE_LIMIT) {
-      const msg = `Diff size exceeds the limit (${DIFF_SIZE_LIMIT} chars). Skipping LLM evaluation to prevent token exhaustion.`;
+    if (prDiff.length > maxDiffSize) {
+      const msg = `Diff size exceeds the limit (${maxDiffSize} chars). Skipping LLM evaluation to prevent token exhaustion.`;
       core.warning(msg);
       if (failOpen) {
         core.info('✅ ADR Check Passed (Fail-Open active).');
