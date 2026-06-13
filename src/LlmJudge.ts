@@ -80,7 +80,7 @@ ${endDelimiter}
           systemInstruction: systemPrompt,
           responseMimeType: 'application/json',
           responseSchema: responseSchema,
-          httpOptions: { timeout: 30000 }, // 30秒のタイムアウト（デッドロック防止）
+          httpOptions: { timeout: 600000 }, // 600秒のタイムアウト（デッドロック防止）
         },
       });
 
