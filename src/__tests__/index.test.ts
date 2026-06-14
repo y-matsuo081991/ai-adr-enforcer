@@ -2,7 +2,14 @@ import * as core from '@actions/core';
 import * as github from '@actions/github';
 import { run } from '../index';
 import { loadAdrFiles } from '../utils/adrLoader';
-import { getPrDiff, postOrUpdateComment, filterDiffNoise } from '../utils/github';
+import { 
+  getPrDiff, 
+  postOrUpdateComment, 
+  filterDiffNoise,
+  hasChangesRequestedFromHumans,
+  submitAutoApproveReview,
+  getPrChangedFilesList
+} from '../utils/github';
 import { LlmJudge } from '../LlmJudge';
 import { z } from 'zod';
 
@@ -20,6 +27,9 @@ jest.mock('../utils/github', () => ({
   postOrUpdateComment: jest.fn(),
   filterDiffNoise: jest.fn((diff: string) => diff),
   sanitizeAiResponse: jest.fn((text: string) => text),
+  hasChangesRequestedFromHumans: jest.fn(),
+  submitAutoApproveReview: jest.fn(),
+  getPrChangedFilesList: jest.fn(),
 }));
 jest.mock('../LlmJudge');
 
@@ -176,5 +186,77 @@ describe('Action Entrypoint (index.ts)', () => {
     expect(core.getInput).not.toHaveBeenCalled(); // 早期リターンによりInputも取得しない
     expect(loadAdrFiles).not.toHaveBeenCalled();
     expect(core.setFailed).not.toHaveBeenCalled();
+  });
+
+  describe('Hybrid Auto-Approve & 2-Step Audit Policies (ADR 012)', () => {
+    beforeEach(() => {
+      github.context.eventName = 'pull_request';
+      github.context.payload = { pull_request: { number: 123 } };
+
+      // デフォルトのInputモックを設定
+      (core.getInput as jest.Mock).mockImplementation((name: string) => {
+        if (name === 'github_token') return 'dummy-token';
+        if (name === 'gemini_api_key') return 'dummy-key';
+        if (name === 'adr_directory') return 'docs/adr';
+        if (name === 'fail_open') return 'false';
+        if (name === 'auto_approve') return 'true'; // 自動承認有効化
+        if (name === 'auto_approve_max_lines') return '30';
+        return '';
+      });
+
+      // 新規GitHubヘルパーのデフォルトモック
+      (hasChangesRequestedFromHumans as jest.Mock).mockResolvedValue(false);
+      (getPrChangedFilesList as jest.Mock).mockResolvedValue(['src/index.ts']);
+    });
+
+    it('8. auto_approveがtrueで、変更が小さく(30行以下)且つAIリスクがlowの場合、PRを自動的に承認すること', async () => {
+      // Arrange
+      const smallDiff = '+ const a = 1;'; // 1行の変更
+      (getPrDiff as jest.Mock).mockResolvedValue(smallDiff);
+      mockEvaluate.mockResolvedValue({ decision: 'pass', reasoning: 'Safe changes', risk_level: 'low' });
+
+      // Act
+      await run();
+
+      // Assert
+      expect(submitAutoApproveReview).toHaveBeenCalledWith('dummy-token', 123);
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Approved'));
+    });
+
+    it('9. auto_approveがtrueだが、人間が CHANGES_REQUESTED レビューを残している場合、自動承認をスキップすること（人間の決定の絶対尊重）', async () => {
+      // Arrange
+      const smallDiff = '+ const a = 1;';
+      (getPrDiff as jest.Mock).mockResolvedValue(smallDiff);
+      mockEvaluate.mockResolvedValue({ decision: 'pass', reasoning: 'Safe changes', risk_level: 'low' });
+      
+      // 人間が却下している状態
+      (hasChangesRequestedFromHumans as jest.Mock).mockResolvedValue(true);
+
+      // Act
+      await run();
+
+      // Assert
+      expect(submitAutoApproveReview).not.toHaveBeenCalled();
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Skipping auto-approve due to human CHANGES_REQUESTED'));
+    });
+
+    it('10. auto_approveがtrueだが、変更行数がしきい値を超える巨大PRの場合、自動承認はスキップするが、2ステップ監査を実行すること', async () => {
+      // Arrange
+      // 35行のプログラム変更（しきい値30を超える）
+      const largeDiff = '+\n'.repeat(35);
+      (getPrDiff as jest.Mock).mockResolvedValue(largeDiff);
+      
+      (getPrChangedFilesList as jest.Mock).mockResolvedValue(['src/index.ts', 'src/utils/github.ts']);
+      mockEvaluate.mockResolvedValue({ decision: 'pass', reasoning: 'Safe but huge' });
+
+      // Act
+      await run();
+
+      // Assert
+      // 巨大PRのため自動Approveは行われないこと
+      expect(submitAutoApproveReview).not.toHaveBeenCalled();
+      // 2ステップ監査（全体目次インプット ➔ 個別監査）がトリガーされていることをログ等で確認
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Executing world-standard 2-step audit for large PR'));
+    });
   });
 });

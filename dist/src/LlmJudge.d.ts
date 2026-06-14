@@ -5,6 +5,11 @@ declare const JudgeResultSchema: z.ZodObject<{
         fail: "fail";
     }>;
     reasoning: z.ZodString;
+    risk_level: z.ZodOptional<z.ZodEnum<{
+        low: "low";
+        medium: "medium";
+        high: "high";
+    }>>;
     suggestion: z.ZodOptional<z.ZodNullable<z.ZodString>>;
 }, z.core.$strip>;
 export type JudgeResult = z.infer<typeof JudgeResultSchema>;

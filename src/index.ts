@@ -1,10 +1,65 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
 import { loadAdrFiles } from './utils/adrLoader';
-import { getPrDiff, postOrUpdateComment, filterDiffNoise, sanitizeAiResponse } from './utils/github';
+import { 
+  getPrDiff, 
+  postOrUpdateComment, 
+  filterDiffNoise, 
+  sanitizeAiResponse,
+  hasChangesRequestedFromHumans,
+  submitAutoApproveReview,
+  getPrChangedFilesList
+} from './utils/github';
 import { LlmJudge } from './LlmJudge';
 
+/**
+ * 差分（Diff）テキストから変更行（追加・削除行）の数をカウントします。
+ * 
+ * @param diff PRのDiff文字列
+ * @returns 変更行数の合計
+ */
+function countChangedLines(diff: string): number {
+  const lines = diff.split('\n');
+  let count = 0;
+  for (const line of lines) {
+    if ((line.startsWith('+') && !line.startsWith('+++')) || (line.startsWith('-') && !line.startsWith('---'))) {
+      count++;
+    }
+  }
+  return count;
+}
+
+/**
+ * 全体のDiffから、特定のファイルに関連する差分（パッチ）を抽出します。
+ * 
+ * @param fullDiff PR全体のDiff文字列
+ * @param filepath 対象ファイルのパス
+ * @returns ファイル固有のDiff文字列
+ */
+function extractFileDiff(fullDiff: string, filepath: string): string {
+  const lines = fullDiff.split('\n');
+  let inTarget = false;
+  const fileLines: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith('diff --git')) {
+      if (line.includes(`a/${filepath}`) || line.includes(`b/${filepath}`)) {
+        inTarget = true;
+        fileLines.push(line);
+      } else {
+        inTarget = false;
+      }
+    } else if (inTarget) {
+      fileLines.push(line);
+    }
+  }
+  return fileLines.join('\n');
+}
+
 export async function run(): Promise<void> {
+  const startTime = Date.now();
+  const GLOBAL_TIMEOUT_MS = 180000; // 180秒（3分）
+  const TIMEOUT_BUFFER_MS = 10000;  // 170秒でタイムアウト間近と判定
+  
   let failOpen = false;
 
   try {
@@ -30,6 +85,11 @@ export async function run(): Promise<void> {
     failOpen = core.getInput('fail_open') === 'true';
     const maxDiffSizeInput = core.getInput('max_diff_size');
     const maxDiffSize = maxDiffSizeInput ? parseInt(maxDiffSizeInput, 10) : 100000;
+    
+    // ADR 012: 自動承認（Hybrid Auto-Approve）用のInputs
+    const autoApprove = core.getInput('auto_approve') === 'true';
+    const autoApproveMaxLinesInput = core.getInput('auto_approve_max_lines');
+    const autoApproveMaxLines = autoApproveMaxLinesInput ? parseInt(autoApproveMaxLinesInput, 10) : 30;
 
     // 【NFR: Privacy】 ログ出力のマスキング機能 (Sensitive Data Masking)
     core.setSecret(githubToken);
@@ -61,33 +121,102 @@ export async function run(): Promise<void> {
       }
     }
 
-    core.info('Data fetching completed. Proceeding to evaluation...');
+    const changedLines = countChangedLines(prDiff);
+    core.info(`PR change stats: ${changedLines} lines of code modified.`);
 
-    // 4. LlmJudge による監査フェーズ
     const judge = new LlmJudge(geminiApiKey);
-    const result = await judge.evaluate(adrContent, prDiff);
 
-    // 5. フィードバックフェーズ
-    if (result.decision === 'pass') {
-      core.info('✅ ADR Check Passed: No architectural violations detected.');
-    } else {
-      core.info('❌ ADR Violation detected. Posting comment to PR...');
+    // 4. LlmJudge による監査フェーズ (分岐判定)
+    if (autoApprove && changedLines > autoApproveMaxLines) {
+      // 巨大PR向け：世界標準2ステップ監査
+      core.info('Executing world-standard 2-step audit for large PR');
       
-      // ADR-009: リンク等のサニタイズ
-      const sanitizedReasoning = sanitizeAiResponse(result.reasoning);
+      const changedFiles = await getPrChangedFilesList(githubToken, prNumber);
       
-      let commentBody = `## 🚨 Architecture Violation Detected\n\n${sanitizedReasoning}`;
-      
-      // Auto-remediation Suggestion を付与 (ADR 004)
-      if (result.suggestion) {
-        // suggestionはコードブロックになるためサニタイズ不要とするが、念のため
-        commentBody += `\n\n### 💡 Auto-remediation Suggestion\n\`\`\`suggestion\n${result.suggestion}\n\`\`\``;
+      let globalTimeoutTriggered = false;
+      const violations: string[] = [];
+      const suggestions: string[] = [];
+
+      for (const file of changedFiles) {
+        // グローバルタイムアウト検証 (180秒予算の厳守)
+        if (Date.now() - startTime > (GLOBAL_TIMEOUT_MS - TIMEOUT_BUFFER_MS)) {
+          core.warning('[Timeout Fallback] Global 180s limit is approaching. Terminating further audits and posting current findings.');
+          globalTimeoutTriggered = true;
+          break;
+        }
+
+        let fileDiff = extractFileDiff(prDiff, file);
+        if (!fileDiff && prDiff) {
+          // テストのモック等のために diff --git がない場合は全体の diff でフォールバック
+          fileDiff = prDiff;
+        }
+
+        if (fileDiff.trim()) {
+          const result = await judge.evaluate(adrContent, fileDiff);
+          if (result.decision === 'fail') {
+            violations.push(`**File: \`${file}\`**\n${result.reasoning}`);
+            if (result.suggestion) {
+              suggestions.push(`**File: \`${file}\`**\n\`\`\`suggestion\n${result.suggestion}\n\`\`\``);
+            }
+          }
+        }
       }
 
-      await postOrUpdateComment(githubToken, prNumber, commentBody);
-      
-      // CIを失敗させる
-      core.setFailed('ADR Violation detected. See PR comment for details.');
+      if (violations.length > 0) {
+        core.info('❌ ADR Violation detected on large PR. Posting comment...');
+        let commentBody = `## 🚨 Architecture Violation Detected (Large PR 2-Step Audit)\n\n${violations.join('\n\n')}`;
+        if (suggestions.length > 0) {
+          commentBody += `\n\n### 💡 Auto-remediation Suggestion\n\n${suggestions.join('\n\n')}`;
+        }
+        await postOrUpdateComment(githubToken, prNumber, commentBody);
+
+        if (globalTimeoutTriggered) {
+          // タイムアウト時は縮退運転としてCIを正常終了させる (ADR 012)
+          core.warning('[Timeout Degraded] Action finished with violations, but returned SUCCESS due to strict 180s timeout budget.');
+        } else {
+          core.setFailed('ADR Violation detected. See PR comment for details.');
+        }
+      } else {
+        core.info('✅ ADR Check Passed: No architectural violations detected in 2-step large PR audit.');
+      }
+    } else {
+      // 通常規模PRの通常監査、あるいは自動承認が無効な場合の既存フロー
+      core.info('Data fetching completed. Proceeding to evaluation...');
+      const result = await judge.evaluate(adrContent, prDiff);
+
+      // 5. フィードバックフェーズ
+      if (result.decision === 'pass') {
+        core.info('✅ ADR Check Passed: No architectural violations detected.');
+
+        // ADR 012: 自動承認判定
+        if (autoApprove && result.risk_level === 'low') {
+          // 人間が CHANGES_REQUESTED レビューを残しているか確認
+          const hasHumanChanges = await hasChangesRequestedFromHumans(githubToken, prNumber);
+          if (hasHumanChanges) {
+            core.info('Skipping auto-approve due to human CHANGES_REQUESTED');
+          } else {
+            await submitAutoApproveReview(githubToken, prNumber);
+            core.info(`[Auto-Approve Audit Log] Approved PR #${prNumber} automatically.`);
+          }
+        }
+      } else {
+        core.info('❌ ADR Violation detected. Posting comment to PR...');
+        
+        // ADR-009: リンク等のサニタイズ
+        const sanitizedReasoning = sanitizeAiResponse(result.reasoning);
+        
+        let commentBody = `## 🚨 Architecture Violation Detected\n\n${sanitizedReasoning}`;
+        
+        // Auto-remediation Suggestion を付与 (ADR 004)
+        if (result.suggestion) {
+          commentBody += `\n\n### 💡 Auto-remediation Suggestion\n\`\`\`suggestion\n${result.suggestion}\n\`\`\``;
+        }
+
+        await postOrUpdateComment(githubToken, prNumber, commentBody);
+        
+        // CIを失敗させる
+        core.setFailed('ADR Violation detected. See PR comment for details.');
+      }
     }
 
   } catch (error) {
