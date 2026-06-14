@@ -54,13 +54,6 @@ export declare function submitAutoApproveReview(token: string, prNumber: number)
  * @returns 変更ファイル名の配列
  */
 export declare function getPrChangedFilesList(token: string, prNumber: number): Promise<string[]>;
-/**
- * PRに未解決のコメント（スレッド）が1つでも存在するか確認します。
- *
- * @param token GitHub Token
- * @param prNumber 対象のPull Request番号
- * @returns 未解決のコメントスレッドがある場合は true、なければ false
- */
 export declare function hasUnresolvedComments(token: string, prNumber: number): Promise<boolean>;
 /**
  * PRに投稿された人間（PR作成者以外の第三者）の全体コメント（タイムラインコメント）一覧を取得します。

@@ -20,4 +20,4 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           auto_approve: 'true'
-          auto_approve_max_lines: '30'
+          auto_approve_max_lines: '100'
