@@ -1,17 +1,32 @@
 import * as github from '@actions/github';
-import { getPrDiff, postOrUpdateComment, filterDiffNoise, sanitizeAiResponse } from '../utils/github';
+import { 
+  getPrDiff, 
+  postOrUpdateComment, 
+  filterDiffNoise, 
+  sanitizeAiResponse,
+  hasChangesRequestedFromHumans,
+  submitAutoApproveReview,
+  getPrChangedFilesList
+} from '../utils/github';
 
 // Octokitのモック設定
 const mockGetPullRequest = jest.fn();
 const mockListComments = jest.fn();
 const mockCreateComment = jest.fn();
 const mockUpdateComment = jest.fn();
+const mockListReviews = jest.fn();
+const mockCreateReview = jest.fn();
+const mockListFiles = jest.fn();
+const mockPaginate = jest.fn();
 
 jest.mock('@actions/github', () => ({
   getOctokit: jest.fn().mockImplementation(() => ({
     rest: {
       pulls: {
         get: mockGetPullRequest,
+        listReviews: mockListReviews,
+        createReview: mockCreateReview,
+        listFiles: mockListFiles,
       },
       issues: {
         listComments: mockListComments,
@@ -19,6 +34,7 @@ jest.mock('@actions/github', () => ({
         updateComment: mockUpdateComment,
       }
     },
+    paginate: mockPaginate,
   })),
   context: {
     repo: {
@@ -226,6 +242,148 @@ describe('postOrUpdateComment', () => {
       comment_id: existingCommentId,
       body: expect.stringContaining('Updated Violation Detected'),
     });
+  });
+});
+
+describe('hasChangesRequestedFromHumans', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('1. 人間の CHANGES_REQUESTED レビューが1つでも存在すれば true を返すこと', async () => {
+    // Arrange
+    mockListReviews.mockResolvedValue({
+      data: [
+        { state: 'APPROVED', user: { type: 'User', login: 'human1' } },
+        { state: 'CHANGES_REQUESTED', user: { type: 'User', login: 'human2' } },
+      ],
+    });
+
+    // Act
+    const result = await hasChangesRequestedFromHumans('token', 123);
+
+    // Assert
+    expect(result).toBe(true);
+    expect(mockListReviews).toHaveBeenCalledWith({
+      owner: 'test-owner',
+      repo: 'test-repo',
+      pull_number: 123,
+    });
+  });
+
+  it('2. CHANGES_REQUESTED レビューが存在しても、それが Bot によるものの場合は false を返すこと', async () => {
+    // Arrange
+    mockListReviews.mockResolvedValue({
+      data: [
+        { state: 'CHANGES_REQUESTED', user: { type: 'Bot', login: 'some-bot[bot]' } },
+      ],
+    });
+
+    // Act
+    const result = await hasChangesRequestedFromHumans('token', 123);
+
+    // Assert
+    expect(result).toBe(false);
+  });
+
+  it('3. CHANGES_REQUESTED レビューが一切存在しない場合は false を返すこと', async () => {
+    // Arrange
+    mockListReviews.mockResolvedValue({
+      data: [
+        { state: 'APPROVED', user: { type: 'User', login: 'human1' } },
+        { state: 'COMMENTED', user: { type: 'User', login: 'human2' } },
+      ],
+    });
+
+    // Act
+    const result = await hasChangesRequestedFromHumans('token', 123);
+
+    // Assert
+    expect(result).toBe(false);
+  });
+});
+
+describe('submitAutoApproveReview', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('1. PRに APPROVED レビューを正常に作成して投稿すること', async () => {
+    // Arrange
+    mockCreateReview.mockResolvedValue({ data: { id: 777 } });
+
+    // Act
+    await submitAutoApproveReview('token', 123);
+
+    // Assert
+    expect(mockCreateReview).toHaveBeenCalledWith({
+      owner: 'test-owner',
+      repo: 'test-repo',
+      pull_number: 123,
+      event: 'APPROVE',
+      body: expect.stringContaining('Auto-approved'),
+    });
+  });
+});
+
+describe('getPrChangedFilesList', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('1. 変更されたファイルの一覧を正常に取得できること', async () => {
+    // Arrange
+    const mockFilesData = [
+      { filename: 'src/index.ts' },
+      { filename: 'src/utils/github.ts' },
+    ];
+    // mockPaginate の実装をコールバック対応にする
+    mockPaginate.mockImplementationOnce(async (apiMethod, params, callback) => {
+      const response = { data: mockFilesData };
+      if (callback) {
+        const done = jest.fn();
+        callback(response, done);
+      }
+      return mockFilesData;
+    });
+
+    // Act
+    const files = await getPrChangedFilesList('token', 123);
+
+    // Assert
+    expect(files).toEqual(['src/index.ts', 'src/utils/github.ts']);
+    expect(mockPaginate).toHaveBeenCalledWith(
+      mockListFiles,
+      expect.objectContaining({
+        owner: 'test-owner',
+        repo: 'test-repo',
+        pull_number: 123,
+      }),
+      expect.any(Function)
+    );
+  });
+
+  it('2. 変更ファイル数が500を超える場合、防衛境界ルールにより例外をスローすること', async () => {
+    // Arrange
+    // mockPaginate の呼び出し時に、callbackを実行して500件以上にする、または
+    // 実際に paginate の処理を模擬してエラーがスローされるようにする。
+    // ここでは、mockPaginate のコールバック関数を取得して呼び出す。
+    mockPaginate.mockImplementation(async (apiMethod, params, callback) => {
+      // 501個のファイルをコールバックに渡す
+      const largePage = {
+        data: Array.from({ length: 501 }, (_, i) => ({ filename: `file${i}.ts` })),
+      };
+      if (callback) {
+        const done = jest.fn();
+        callback(largePage, done);
+      }
+      return largePage.data;
+    });
+
+    // Act & Assert
+    await expect(getPrChangedFilesList('token', 123)).rejects.toThrow(
+      'PR exceeds maximum allowed files limit (500).'
+    );
   });
 });
 

@@ -6,7 +6,10 @@ import * as crypto from 'crypto';
 const JudgeResultSchema = z.object({
   decision: z.enum(['pass', 'fail']),
   reasoning: z.string(),
+  risk_level: z.enum(['low', 'medium', 'high']).optional(),
   suggestion: z.string().nullable().optional(),
+  remediation_status: z.enum(['resolved', 'unresolved', 'no_human_comments']).optional(),
+  remediation_advice: z.string().nullable().optional(),
 });
 
 export type JudgeResult = z.infer<typeof JudgeResultSchema>;
@@ -19,7 +22,7 @@ export class LlmJudge {
     this.ai = new GoogleGenAI({ apiKey });
   }
 
-  async evaluate(adrContent: string, prDiff: string): Promise<JudgeResult> {
+  async evaluate(adrContent: string, prDiff: string, humanComments: string[] = []): Promise<JudgeResult> {
     // ADR-011: 動的サニタイズ（インジェクション対策バリデーション）
     if (prDiff.includes('---BEGIN_DIFF_')) {
       throw new Error('Potential Prompt Injection detected: Diff contains reserved delimiter pattern.');
@@ -30,7 +33,7 @@ export class LlmJudge {
     const beginDelimiter = `---BEGIN_DIFF_${delimiterId}---`;
     const endDelimiter = `---END_DIFF_${delimiterId}---`;
 
-    const systemPrompt = `
+    let systemPrompt = `
 You are an expert Software Architect and Code Reviewer.
 Your task is to audit the provided Pull Request Diff against the given Architecture Decision Records (ADRs).
 
@@ -42,6 +45,25 @@ Please determine if the PR Diff violates any rules or constraints defined in the
 Return your decision as "pass" or "fail", along with your reasoning.
 If the decision is "fail", you MUST provide a "suggestion" containing the corrected code snippet that resolves the violation. The suggestion should be ready to be used in a GitHub Review Comment suggestion block (do not include the markdown backticks \`\`\`suggestion itself, just the code).
 `;
+
+    if (humanComments.length > 0) {
+      systemPrompt += `
+
+Additionally, human reviewers have previously left the following feedback or requested changes in the PR's main comments timeline:
+<human_comments_from_previous_revisions>
+${humanComments.map((comment, index) => `Comment #${index + 1}: ${comment}`).join('\n---\n')}
+</human_comments_from_previous_revisions>
+
+You MUST evaluate whether the new PR Diff has successfully resolved/addressed ALL of these previous human review comments.
+Set "remediation_status" to "resolved" if all human comments are fully fixed/addressed by this new diff.
+Set "remediation_status" to "unresolved" if any of the human comments are still unfixed or only partially addressed in the new diff.
+If "remediation_status" is "unresolved", you MUST provide "remediation_advice" explaining specifically which parts of the previous human review comments are still unaddressed and what the developer needs to do to resolve them.
+`;
+    } else {
+      systemPrompt += `
+If there are no human comments provided, set "remediation_status" to "no_human_comments" and "remediation_advice" to null.
+`;
+    }
 
     const userMessage = `
 Please audit the following Pull Request Diff:
@@ -63,13 +85,28 @@ ${endDelimiter}
           type: Type.STRING,
           description: 'The reasoning behind the decision, citing specific parts of the ADR and Diff.',
         },
+        risk_level: {
+          type: Type.STRING,
+          description: 'The risk level of the changes, either "low", "medium", or "high". Use "low" for highly safe, simple, or low-impact changes.',
+          enum: ['low', 'medium', 'high'],
+        },
         suggestion: {
           type: Type.STRING,
           description: 'If fail, provide the corrected code snippet. Omit if pass.',
           nullable: true,
         },
+        remediation_status: {
+          type: Type.STRING,
+          description: 'Evaluation of previous human comments resolution. Use "resolved" if all comments are addressed, "unresolved" if any are still outstanding, or "no_human_comments" if none were provided.',
+          enum: ['resolved', 'unresolved', 'no_human_comments'],
+        },
+        remediation_advice: {
+          type: Type.STRING,
+          description: 'If remediation_status is "unresolved", explain what remains unaddressed and provide remediation advice. Omit or set to null if resolved.',
+          nullable: true,
+        },
       },
-      required: ['decision', 'reasoning'],
+      required: ['decision', 'reasoning', 'risk_level', 'remediation_status'],
     };
 
     try {

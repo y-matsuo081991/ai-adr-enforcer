@@ -22,6 +22,14 @@ inputs:
     description: 'The maximum allowed length of the PR diff (in characters). If the diff exceeds this size, evaluation is skipped to prevent token exhaustion.'
     required: false
     default: '300000'
+  auto_approve:
+    description: 'If true, automatically approves PRs that are small or contain safe files only, and have risk_level low.'
+    required: false
+    default: 'false'
+  auto_approve_max_lines:
+    description: 'The line count threshold for considering a PR small for auto-approval. Defaults to 30 lines.'
+    required: false
+    default: '30'
 runs:
   using: 'node20'
   main: 'dist/index.js'

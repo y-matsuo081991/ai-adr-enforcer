@@ -154,3 +154,172 @@ export async function postOrUpdateComment(token: string, prNumber: number, body:
     throw new Error('Failed to post or update comment: Unknown error');
   }
 }
+
+/**
+ * PRに人間からの CHANGES_REQUESTED レビューが1つでも存在するか確認します。
+ * 
+ * @param token GitHub Token
+ * @param prNumber 対象のPull Request番号
+ * @returns 人間からの拒否レビューがある場合は true、なければ false
+ */
+export async function hasChangesRequestedFromHumans(token: string, prNumber: number): Promise<boolean> {
+  try {
+    const octokit = github.getOctokit(token);
+    const { owner, repo } = github.context.repo;
+
+    const { data: reviews } = await octokit.rest.pulls.listReviews({
+      owner,
+      repo,
+      pull_number: prNumber,
+    });
+
+    // state === 'CHANGES_REQUESTED' かつ user.type === 'User'（人間）のレビューが存在するかチェック
+    return reviews.some((review) => review.state === 'CHANGES_REQUESTED' && review.user?.type === 'User');
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Failed to check human reviews: ${error.message}`);
+    }
+    throw new Error('Failed to check human reviews: Unknown error');
+  }
+}
+
+/**
+ * 対象の PR に対して自動承認（APPROVED）のレビューを安全に投稿します。
+ * 
+ * @param token GitHub Token
+ * @param prNumber 対象のPull Request番号
+ */
+export async function submitAutoApproveReview(token: string, prNumber: number): Promise<void> {
+  try {
+    const octokit = github.getOctokit(token);
+    const { owner, repo } = github.context.repo;
+
+    await octokit.rest.pulls.createReview({
+      owner,
+      repo,
+      pull_number: prNumber,
+      event: 'APPROVE',
+      body: '🤖 **AI-Driven ADR Enforcer**: Auto-approved as the changes are highly safe, low risk, and comply fully with all project ADR constraints.',
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Failed to submit auto approve review: ${error.message}`);
+    }
+    throw new Error('Failed to submit auto approve review: Unknown error');
+  }
+}
+
+/**
+ * PRで変更されたすべてのファイル名の一覧を取得します。
+ * API Rate Limitを保護する防衛境界ルールに基づき、最大500ファイルまでに制限します。
+ * 
+ * @param token GitHub Token
+ * @param prNumber 対象 of Pull Request番号
+ * @returns 変更ファイル名の配列
+ */
+export async function getPrChangedFilesList(token: string, prNumber: number): Promise<string[]> {
+  try {
+    const octokit = github.getOctokit(token);
+    const { owner, repo } = github.context.repo;
+
+    const files: string[] = [];
+    const maxFiles = 500;
+
+    // pagination を用いて全ファイルを漏れなくスキャンする
+    await octokit.paginate(
+      octokit.rest.pulls.listFiles,
+      {
+        owner,
+        repo,
+        pull_number: prNumber,
+        per_page: 100,
+      },
+      (response, done) => {
+        const pageFiles = response.data.map((file) => file.filename);
+        files.push(...pageFiles);
+
+        // 防衛境界：500ファイル制限チェック
+        if (files.length > maxFiles) {
+          done(); // ページネーションをこれ以上進めない
+        }
+        return response.data;
+      }
+    );
+
+    if (files.length > maxFiles) {
+      throw new Error(`PR exceeds maximum allowed files limit (${maxFiles}).`);
+    }
+
+    return files;
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Failed to fetch PR changed files: ${error.message}`);
+    }
+    throw new Error('Failed to fetch PR changed files: Unknown error');
+  }
+}
+
+/**
+ * PRに未解決のコメント（スレッド）が1つでも存在するか確認します。
+ * 
+ * @param token GitHub Token
+ * @param prNumber 対象のPull Request番号
+ * @returns 未解決のコメントスレッドがある場合は true、なければ false
+ */
+export async function hasUnresolvedComments(token: string, prNumber: number): Promise<boolean> {
+  try {
+    const octokit = github.getOctokit(token);
+    const { owner, repo } = github.context.repo;
+
+    const { data: comments } = await octokit.rest.pulls.listReviewComments({
+      owner,
+      repo,
+      pull_number: prNumber,
+    });
+
+    // 各コメントに `resolved` プロパティがあり、それが `false` のものが存在するかチェック
+    return comments.some((comment: any) => comment.resolved === false);
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Failed to check unresolved comments: ${error.message}`);
+    }
+    throw new Error('Failed to check unresolved comments: Unknown error');
+  }
+}
+
+/**
+ * PRに投稿された人間（PR作成者以外の第三者）の全体コメント（タイムラインコメント）一覧を取得します。
+ * Copilot等のBotの行コメントや、PR作成者自身のコメントは完全に無視されます。
+ * 
+ * @param token GitHub Token
+ * @param prNumber 対象のPull Request番号
+ * @param prAuthor PR作成者のユーザー名
+ * @returns 人間の全体コメント本文の配列
+ */
+export async function getHumanGeneralComments(token: string, prNumber: number, prAuthor: string): Promise<string[]> {
+  try {
+    const octokit = github.getOctokit(token);
+    const { owner, repo } = github.context.repo;
+
+    const { data: comments } = await octokit.rest.issues.listComments({
+      owner,
+      repo,
+      issue_number: prNumber,
+    });
+
+    return comments
+      .filter((comment) => {
+        const isHuman = comment.user?.type === 'User';
+        const isNotPrAuthor = comment.user?.login !== prAuthor;
+        const isNotActionComment = !comment.body?.includes('<!-- ai-adr-enforcer-signature -->');
+        return isHuman && isNotPrAuthor && isNotActionComment;
+      })
+      .map((comment) => comment.body || '')
+      .filter((body) => body.trim() !== '');
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Failed to fetch human general comments: ${error.message}`);
+    }
+    throw new Error('Failed to fetch human general comments: Unknown error');
+  }
+}
