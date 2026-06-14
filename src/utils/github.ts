@@ -45,6 +45,7 @@ export function filterDiffNoise(diff: string): string {
     'package-lock\\.json',
     'yarn\\.lock',
     'pnpm-lock\\.yaml',
+    'dist/index\\.js',
     '\\.svg$',
     '\\.png$',
     '\\.jpg$',
