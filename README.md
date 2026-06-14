@@ -53,6 +53,19 @@ jobs:
           auto_approve_max_lines: '30' # 自動承認のしきい値行数 (デフォルト: 30)
 ```
 
+### ⚠️ 自動承認（Auto-Approve）を有効にする場合の必須設定
+
+本アクションで `auto_approve: 'true'` を有効化する場合、GitHubリポジトリ側で以下の設定を行わないと、GitHub Actionsがプルリクエストを承認する権限を持たないため、エラー（`Unprocessable Entity: "GitHub Actions is not permitted to approve pull requests."`）が発生しCIが失敗します。
+
+1. 対象リポジトリの **Settings（設定）** ➔ **Actions** ➔ **General** を開きます。
+2. ページ最下部付近にある **Workflow permissions** セクションを探します。
+3. **「Allow GitHub Actions to create and approve pull requests」** のチェックボックスを **オン（有効）** にし、**Save** をクリックして保存します。
+
+> [!NOTE]
+> **安全ブレーキ（未解決コメントの考慮）について**
+> 人間のレビュアーの意思決定を絶対尊重するため、PR上に1件でも「未解決の会話スレッド（Unresolved Conversation）」が残っている間は、誤承認マージを防ぐために自動承認が即座にオプトアウト（安全にスキップ）されます。すべてのスレッドが「Resolve conversation」で解決状態にマークされた時のみ、自動承認の評価が再開されます。
+
+
 ### 🔒 GitHub App を使った自動承認の高度な連携 (Advanced: GitHub App Integration)
 
 GitHub のデフォルトトークンである `${{ secrets.GITHUB_TOKEN }}` を使ってPRを自動承認（APPROVE）した場合、**GitHub のセキュリティ制限（Recursion Prevention / ワークフロー再帰防止）により、その承認をトリガーとした他の GitHub Actions（例: 自動マージ、別の検証CI、デプロイ等）は実行されません。** また、Branch Protection Rule（ブランチ保護ルール）で「PRレビューの最小承認数」を設定している場合、`GITHUB_TOKEN` による承認が承認レビュー数にカウントされないことがあります。
