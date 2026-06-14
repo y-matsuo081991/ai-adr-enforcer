@@ -8,7 +8,8 @@ import {
   sanitizeAiResponse,
   hasChangesRequestedFromHumans,
   submitAutoApproveReview,
-  getPrChangedFilesList
+  getPrChangedFilesList,
+  hasUnresolvedComments
 } from './utils/github';
 import { LlmJudge } from './LlmJudge';
 
@@ -195,8 +196,14 @@ export async function run(): Promise<void> {
           if (hasHumanChanges) {
             core.info('Skipping auto-approve due to human CHANGES_REQUESTED');
           } else {
-            await submitAutoApproveReview(githubToken, prNumber);
-            core.info(`[Auto-Approve Audit Log] Approved PR #${prNumber} automatically.`);
+            // 未解決の会話スレッドが残っているか確認（業界標準）
+            const hasUnresolved = await hasUnresolvedComments(githubToken, prNumber);
+            if (hasUnresolved) {
+              core.info('Skipping auto-approve due to unresolved conversations');
+            } else {
+              await submitAutoApproveReview(githubToken, prNumber);
+              core.info(`[Auto-Approve Audit Log] Approved PR #${prNumber} automatically.`);
+            }
           }
         }
       } else {

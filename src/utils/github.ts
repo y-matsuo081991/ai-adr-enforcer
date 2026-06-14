@@ -258,3 +258,31 @@ export async function getPrChangedFilesList(token: string, prNumber: number): Pr
     throw new Error('Failed to fetch PR changed files: Unknown error');
   }
 }
+
+/**
+ * PRに未解決のコメント（スレッド）が1つでも存在するか確認します。
+ * 
+ * @param token GitHub Token
+ * @param prNumber 対象のPull Request番号
+ * @returns 未解決のコメントスレッドがある場合は true、なければ false
+ */
+export async function hasUnresolvedComments(token: string, prNumber: number): Promise<boolean> {
+  try {
+    const octokit = github.getOctokit(token);
+    const { owner, repo } = github.context.repo;
+
+    const { data: comments } = await octokit.rest.pulls.listReviewComments({
+      owner,
+      repo,
+      pull_number: prNumber,
+    });
+
+    // 各コメントに `resolved` プロパティがあり、それが `false` のものが存在するかチェック
+    return comments.some((comment: any) => comment.resolved === false);
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Failed to check unresolved comments: ${error.message}`);
+    }
+    throw new Error('Failed to check unresolved comments: Unknown error');
+  }
+}

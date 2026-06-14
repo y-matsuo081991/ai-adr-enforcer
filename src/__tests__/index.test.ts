@@ -8,7 +8,8 @@ import {
   filterDiffNoise,
   hasChangesRequestedFromHumans,
   submitAutoApproveReview,
-  getPrChangedFilesList
+  getPrChangedFilesList,
+  hasUnresolvedComments
 } from '../utils/github';
 import { LlmJudge } from '../LlmJudge';
 import { z } from 'zod';
@@ -30,6 +31,7 @@ jest.mock('../utils/github', () => ({
   hasChangesRequestedFromHumans: jest.fn(),
   submitAutoApproveReview: jest.fn(),
   getPrChangedFilesList: jest.fn(),
+  hasUnresolvedComments: jest.fn(),
 }));
 jest.mock('../LlmJudge');
 
@@ -207,6 +209,7 @@ describe('Action Entrypoint (index.ts)', () => {
       // 新規GitHubヘルパーのデフォルトモック
       (hasChangesRequestedFromHumans as jest.Mock).mockResolvedValue(false);
       (getPrChangedFilesList as jest.Mock).mockResolvedValue(['src/index.ts']);
+      (hasUnresolvedComments as jest.Mock).mockResolvedValue(false);
     });
 
     it('8. auto_approveがtrueで、変更が小さく(30行以下)且つAIリスクがlowの場合、PRを自動的に承認すること', async () => {
@@ -257,6 +260,23 @@ describe('Action Entrypoint (index.ts)', () => {
       expect(submitAutoApproveReview).not.toHaveBeenCalled();
       // 2ステップ監査（全体目次インプット ➔ 個別監査）がトリガーされていることをログ等で確認
       expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Executing world-standard 2-step audit for large PR'));
+    });
+
+    it('11. auto_approveがtrueだが、PRに未解決のコメント（スレッド）が残っている場合、自動承認をスキップすること', async () => {
+      // Arrange
+      const smallDiff = '+ const a = 1;';
+      (getPrDiff as jest.Mock).mockResolvedValue(smallDiff);
+      mockEvaluate.mockResolvedValue({ decision: 'pass', reasoning: 'Safe changes', risk_level: 'low' });
+
+      // 未解決コメントが存在する状態にする
+      (hasUnresolvedComments as jest.Mock).mockResolvedValue(true);
+
+      // Act
+      await run();
+
+      // Assert
+      expect(submitAutoApproveReview).not.toHaveBeenCalled();
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Skipping auto-approve due to unresolved conversations'));
     });
   });
 });
