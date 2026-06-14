@@ -261,6 +261,9 @@ export async function getPrChangedFilesList(token: string, prNumber: number): Pr
 }
 
 export async function hasUnresolvedComments(token: string, prNumber: number): Promise<boolean> {
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), 30000);
+
   try {
     const octokit = github.getOctokit(token);
     const { owner, repo } = github.context.repo;
@@ -283,15 +286,21 @@ export async function hasUnresolvedComments(token: string, prNumber: number): Pr
       owner,
       repo,
       number: prNumber,
+      request: { signal: abortController.signal }
     });
 
     const threads = response.repository?.pullRequest?.reviewThreads?.nodes || [];
     return threads.some((thread: any) => !thread.isResolved);
   } catch (error) {
     if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        throw new Error('Failed to check unresolved comments: GraphQL API request timed out (30s limit)');
+      }
       throw new Error(`Failed to check unresolved comments: ${error.message}`);
     }
     throw new Error('Failed to check unresolved comments: Unknown error');
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
