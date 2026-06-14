@@ -245,6 +245,7 @@ export async function run(): Promise<void> {
         // ADR 012: 自動承認判定
         if (autoApprove) {
           const hasHumanChanges = await hasChangesRequestedFromHumans(githubToken, prNumber);
+          const hasUnresolvedThreads = await hasUnresolvedComments(githubToken, prNumber);
           const isRiskLevelLow = result.risk_level === 'low';
           const isRemediationPass = result.remediation_status !== 'unresolved';
 
@@ -253,8 +254,10 @@ export async function run(): Promise<void> {
             auditResult = `Skipped (Risk Level: ${result.risk_level || 'unknown'})`;
           } else if (hasHumanChanges) {
             auditResult = 'Skipped (Human CHANGES_REQUESTED exists)';
+          } else if (hasUnresolvedThreads) {
+            auditResult = 'Skipped (Unresolved physical comment threads exist)';
           } else if (!isRemediationPass) {
-            auditResult = 'Skipped (Unresolved human comments)';
+            auditResult = 'Skipped (Unresolved human comments evaluated by AI)';
           } else {
             auditResult = 'Approved (Review submitted)';
           }
@@ -273,8 +276,10 @@ export async function run(): Promise<void> {
           if (isRiskLevelLow) {
             if (hasHumanChanges) {
               core.info('Skipping auto-approve due to human CHANGES_REQUESTED');
+            } else if (hasUnresolvedThreads) {
+              core.info('Skipping auto-approve due to unresolved physical comment threads');
             } else if (!isRemediationPass) {
-              core.info('Skipping auto-approve due to unresolved human comments');
+              core.info('Skipping auto-approve due to unresolved human comments evaluated by AI');
               
               if (result.remediation_advice) {
                 const adviceComment = `### ⚠️ Previous Human Review Unresolved\n\nSome of the previous human review comments are still outstanding or not fully addressed in the latest changes.\n\n#### 💡 Remediation Advice:\n${result.remediation_advice}`;
