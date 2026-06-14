@@ -397,5 +397,32 @@ describe('Action Entrypoint (index.ts)', () => {
       expect(core.info).toHaveBeenCalledWith(expect.stringContaining('- AI Risk Level: medium -> SKIP'));
       expect(core.info).toHaveBeenCalledWith(expect.stringContaining('- Result: Skipped (Risk Level: medium)'));
     });
+
+    it('16. auto_approveがtrueでAIがresolvedと判定しても、GitHub上に物理的な未解決コメントスレッドが残っている場合、自動承認をスキップすること（スレッド状態の物理的チェック）', async () => {
+      // Arrange
+      const smallDiff = '+ const a = 1;';
+      (getPrDiff as jest.Mock).mockResolvedValue(smallDiff);
+      (getPrChangedFilesList as jest.Mock).mockResolvedValue(['src/index.ts']);
+      
+      // 物理スレッドが未解決の状態
+      (hasUnresolvedComments as jest.Mock).mockResolvedValue(true);
+
+      // AIは resolved / low リスクと判定（AI判定と物理状態の乖離）
+      mockEvaluate.mockResolvedValue({ 
+        decision: 'pass', 
+        reasoning: 'Changes look resolved to me', 
+        risk_level: 'low',
+        remediation_status: 'resolved'
+      });
+
+      // Act
+      await run();
+
+      // Assert
+      // 物理スレッドが未解決のため、自動承認は行われないこと
+      expect(submitAutoApproveReview).not.toHaveBeenCalled();
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Skipping auto-approve due to unresolved physical comment threads'));
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('- Result: Skipped (Unresolved physical comment threads exist)'));
+    });
   });
 });
