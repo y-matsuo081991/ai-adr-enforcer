@@ -9,7 +9,8 @@ import {
   hasChangesRequestedFromHumans,
   submitAutoApproveReview,
   getPrChangedFilesList,
-  hasUnresolvedComments
+  hasUnresolvedComments,
+  getHumanGeneralComments
 } from '../utils/github';
 import { LlmJudge } from '../LlmJudge';
 import { z } from 'zod';
@@ -32,6 +33,7 @@ jest.mock('../utils/github', () => ({
   submitAutoApproveReview: jest.fn(),
   getPrChangedFilesList: jest.fn(),
   hasUnresolvedComments: jest.fn(),
+  getHumanGeneralComments: jest.fn(),
 }));
 jest.mock('../LlmJudge');
 
@@ -42,6 +44,7 @@ describe('Action Entrypoint (index.ts)', () => {
     jest.clearAllMocks();
     (loadAdrFiles as jest.Mock).mockReturnValue('Mocked ADR Content');
     (getPrDiff as jest.Mock).mockResolvedValue('Mocked PR Diff');
+    (getHumanGeneralComments as jest.Mock).mockResolvedValue([]);
     
     mockEvaluate = jest.fn();
     (LlmJudge as jest.Mock).mockImplementation(() => ({
@@ -82,7 +85,7 @@ describe('Action Entrypoint (index.ts)', () => {
 
     // Assert
     expect(LlmJudge).toHaveBeenCalledWith('dummy-gemini-key');
-    expect(mockEvaluate).toHaveBeenCalledWith('Mocked ADR Content', 'Mocked PR Diff');
+    expect(mockEvaluate).toHaveBeenCalledWith('Mocked ADR Content', 'Mocked PR Diff', []);
     expect(core.info).toHaveBeenCalledWith(expect.stringContaining('ADR Check Passed'));
     expect(postOrUpdateComment).not.toHaveBeenCalled();
     expect(core.setFailed).not.toHaveBeenCalled();
@@ -210,6 +213,7 @@ describe('Action Entrypoint (index.ts)', () => {
       (hasChangesRequestedFromHumans as jest.Mock).mockResolvedValue(false);
       (getPrChangedFilesList as jest.Mock).mockResolvedValue(['src/index.ts']);
       (hasUnresolvedComments as jest.Mock).mockResolvedValue(false);
+      (getHumanGeneralComments as jest.Mock).mockResolvedValue([]);
     });
 
     it('8. auto_approveがtrueで、変更が小さく(30行以下)且つAIリスクがlowの場合、PRを自動的に承認すること', async () => {
@@ -262,21 +266,136 @@ describe('Action Entrypoint (index.ts)', () => {
       expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Executing world-standard 2-step audit for large PR'));
     });
 
-    it('11. auto_approveがtrueだが、PRに未解決のコメント（スレッド）が残っている場合、自動承認をスキップすること', async () => {
+    it('11. 人間が過去に残した指摘コメントが未解決の場合、自動承認をスキップし、Remediation Adviceコメントを投稿すること', async () => {
       // Arrange
       const smallDiff = '+ const a = 1;';
       (getPrDiff as jest.Mock).mockResolvedValue(smallDiff);
-      mockEvaluate.mockResolvedValue({ decision: 'pass', reasoning: 'Safe changes', risk_level: 'low' });
+      
+      // 人間の過去コメントが存在する状態にする
+      const humanComments = ['Please use Google Fonts (Outfit) instead of system default font.'];
+      (getHumanGeneralComments as jest.Mock).mockResolvedValue(humanComments);
 
-      // 未解決コメントが存在する状態にする
-      (hasUnresolvedComments as jest.Mock).mockResolvedValue(true);
+      // LlmJudge が未解決 (unresolved) と判定し、アドバイスを返す
+      mockEvaluate.mockResolvedValue({ 
+        decision: 'pass', 
+        reasoning: 'Changes are fine but human comment is not addressed yet.', 
+        risk_level: 'low',
+        remediation_status: 'unresolved',
+        remediation_advice: 'The UI still uses system fonts. Please import Google Fonts (Outfit) and use it.'
+      });
+
+      // Act
+      await run();
+
+      // Assert
+      // 自動承認はスキップされていること
+      expect(submitAutoApproveReview).not.toHaveBeenCalled();
+      // Remediation Advice を含むコメントがPRに投稿されていること
+      expect(postOrUpdateComment).toHaveBeenCalledWith(
+        'dummy-token', 
+        123, 
+        expect.stringContaining('The UI still uses system fonts. Please import Google Fonts (Outfit) and use it.')
+      );
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Skipping auto-approve due to unresolved human comments'));
+    });
+
+    it('12. 人間の指摘コメントが存在するが、それらがすべて解決済(resolved)と判定された場合、正常に自動承認されること', async () => {
+      // Arrange
+      const smallDiff = '+ body { font-family: "Outfit", sans-serif; }';
+      (getPrDiff as jest.Mock).mockResolvedValue(smallDiff);
+      
+      // 人間の過去コメントが存在する
+      const humanComments = ['Please use Google Fonts (Outfit) instead of system default font.'];
+      (getHumanGeneralComments as jest.Mock).mockResolvedValue(humanComments);
+
+      // LlmJudge が解決済 (resolved) と判定
+      mockEvaluate.mockResolvedValue({ 
+        decision: 'pass', 
+        reasoning: 'The human comment is successfully addressed in the new diff.', 
+        risk_level: 'low',
+        remediation_status: 'resolved',
+        remediation_advice: null
+      });
+
+      // Act
+      await run();
+
+      // Assert
+      // 正常に自動承認されること
+      expect(submitAutoApproveReview).toHaveBeenCalledWith('dummy-token', 123);
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Approved'));
+    });
+
+    it('13. auto_approveがtrueだが、AIリスクレベルがmediumまたはhighの場合、自動承認をスキップすること', async () => {
+      // Arrange
+      const smallDiff = '+ const a = 1;';
+      (getPrDiff as jest.Mock).mockResolvedValue(smallDiff);
+      
+      // リスクレベルが medium
+      mockEvaluate.mockResolvedValue({ 
+        decision: 'pass', 
+        reasoning: 'Changes are syntactically valid but require human verification.', 
+        risk_level: 'medium',
+        remediation_status: 'no_human_comments',
+        remediation_advice: null
+      });
+
+      // Act
+      await run();
+
+      // Assert
+      // 自動承認はスキップされていること
+      expect(submitAutoApproveReview).not.toHaveBeenCalled();
+      // ログにリスクレベルによるスキップが記録されていること
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Skipping auto-approve due to risk level: medium'));
+    });
+
+    it('14. auto_approveがtrueで、変更が30行を超えているが、すべて安全なファイルのみの変更の場合、自動承認されること（静的オプトアウト回避）', async () => {
+      // Arrange
+      // 35行の変更（しきい値30を超える）
+      const largeDiff = '+\n'.repeat(35);
+      (getPrDiff as jest.Mock).mockResolvedValue(largeDiff);
+      
+      // 変更ファイルは README.md（安全なファイル）
+      (getPrChangedFilesList as jest.Mock).mockResolvedValue(['README.md']);
+      mockEvaluate.mockResolvedValue({ 
+        decision: 'pass', 
+        reasoning: 'Markdown only changes', 
+        risk_level: 'low',
+        remediation_status: 'no_human_comments'
+      });
+
+      // Act
+      await run();
+
+      // Assert
+      // 30行を超えているが、安全なファイルのみなので自動承認される
+      expect(submitAutoApproveReview).toHaveBeenCalledWith('dummy-token', 123);
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('[Auto-Approve Audit Log]'));
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Is Safe Files Only: true'));
+    });
+
+    it('15. リスクレベルがmediumの場合、自動承認がスキップされ、Audit Logに SKIP 理由が明記されること', async () => {
+      // Arrange
+      const smallDiff = '+ const a = 1;';
+      (getPrDiff as jest.Mock).mockResolvedValue(smallDiff);
+      (getPrChangedFilesList as jest.Mock).mockResolvedValue(['src/index.ts']);
+      
+      mockEvaluate.mockResolvedValue({ 
+        decision: 'pass', 
+        reasoning: 'Changes are fine but high risk', 
+        risk_level: 'medium',
+        remediation_status: 'no_human_comments'
+      });
 
       // Act
       await run();
 
       // Assert
       expect(submitAutoApproveReview).not.toHaveBeenCalled();
-      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Skipping auto-approve due to unresolved conversations'));
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('[Auto-Approve Audit Log]'));
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('- AI Risk Level: medium -> SKIP'));
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('- Result: Skipped (Risk Level: medium)'));
     });
   });
 });

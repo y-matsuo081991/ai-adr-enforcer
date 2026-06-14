@@ -286,3 +286,40 @@ export async function hasUnresolvedComments(token: string, prNumber: number): Pr
     throw new Error('Failed to check unresolved comments: Unknown error');
   }
 }
+
+/**
+ * PRに投稿された人間（PR作成者以外の第三者）の全体コメント（タイムラインコメント）一覧を取得します。
+ * Copilot等のBotの行コメントや、PR作成者自身のコメントは完全に無視されます。
+ * 
+ * @param token GitHub Token
+ * @param prNumber 対象のPull Request番号
+ * @param prAuthor PR作成者のユーザー名
+ * @returns 人間の全体コメント本文の配列
+ */
+export async function getHumanGeneralComments(token: string, prNumber: number, prAuthor: string): Promise<string[]> {
+  try {
+    const octokit = github.getOctokit(token);
+    const { owner, repo } = github.context.repo;
+
+    const { data: comments } = await octokit.rest.issues.listComments({
+      owner,
+      repo,
+      issue_number: prNumber,
+    });
+
+    return comments
+      .filter((comment) => {
+        const isHuman = comment.user?.type === 'User';
+        const isNotPrAuthor = comment.user?.login !== prAuthor;
+        const isNotActionComment = !comment.body?.includes('<!-- ai-adr-enforcer-signature -->');
+        return isHuman && isNotPrAuthor && isNotActionComment;
+      })
+      .map((comment) => comment.body || '')
+      .filter((body) => body.trim() !== '');
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Failed to fetch human general comments: ${error.message}`);
+    }
+    throw new Error('Failed to fetch human general comments: Unknown error');
+  }
+}

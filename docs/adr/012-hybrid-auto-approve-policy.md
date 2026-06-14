@@ -34,6 +34,7 @@ AIによるリスク判定（Pass ＆ Low Risk）
 
 #### ① AIによるリスク判定（LlmJudgeの拡張と後方互換性）
 *   `LlmJudge` の出力スキーマに `risk_level`（`low` | `medium` | `high`）を追加します。Geminiに「ADR違反がない（`pass`）」かつ「変更に伴うシステム的なリスクが十分に低い（`low`）」と判断させた場合のみ、この条件をクリアとします。
+*   **【リスクレベルに応じた自動承認スキップ】**: リスクレベルが `low` 以外（`medium` または `high`）と判定された場合、不必要な自動承認を避けるため承認プロセスは安全にスキップされます。このとき、コード自体にADR違反がなければ、CIチェック自体は正常終了（PASS）として扱い、手動レビューへ引き継ぎます。また、自動承認がスキップされた具体的なリスクレベルの理由は、監査メタデータログに明示的に記録され、可観測性を担保します。
 *   **【後方互換性の保証】**: プログラム側のZodスキーマ定義においては、`risk_level` をオプショナル（`.optional()` またはデフォルト値付き）として定義し、古いテストコードやLLMが旧フォーマットを返した場合でもスキーマ検証エラーでCIがクラッシュするのを完全に防ぎます。
 *   **【タイムアウトの最適化と2層防御】**: ネットワークのハングアップを防ぎ、実運用での開発者のフィードバック効率（CIの待ち時間）を最適化するため、タイムアウトは以下の**「2層のタイムアウト防御」**で実装します。
     *   **1. LLM API個別タイムアウト (60秒)**: LLM（Gemini）への1回ごとのリクエストに対する制限時間。
@@ -101,9 +102,13 @@ graph TD
         Step2 --> Step3["3. 文脈が切れないよう小分けに順次監査<br>(Context-Aware Chunking)"]
     end
     
-    LlmNormal --> LlmJudge["⑤ LlmJudge 判定"]
-    LlmJudge -- "Pass ＆ risk_level: low" --> Approve["⑥ 自動 Approve 投稿 / 監査メタデータログ出力"]
-    LlmJudge -- "Fail または risk_level > low" --> Comment["⑥ 違反箇所の指摘コメント投稿 / CI失敗"]
+    LlmNormal --> HumanCommentCollect["⑤ 人間が投稿した過去の全体コメントを収集"]
+    HumanCommentCollect --> LlmJudge["⑥ LlmJudge 判定<br>(人間の過去指摘の解決検証も実行)"]
+    
+    LlmJudge -- "Pass ＆ risk_level: low<br>かつ人間の過去指摘がすべて解決済" --> Approve["⑦ 自動 Approve 投稿 / 監査メタデータログ出力"]
+    LlmJudge -- "未解決の人間の過去指摘あり" --> SkipAdvice["⑦ 自動承認スキップ / Remediation Advice（アドバイスコメント）を投稿"]
+    LlmJudge -- "Pass ＆ risk_level: medium/high" --> SkipRisk["⑦ 自動承認スキップ（監査ログに理由明記）/ 通常合格終了（人間にバトンタッチ）"]
+    LlmJudge -- "Fail" --> Comment["⑦ 違反箇所の指摘コメント投稿 / CI失敗"]
     
     Step3 --> StepFinish["4. 監査結果の指摘コメント投稿 / 人間にバトンタッチ"]
 
@@ -111,6 +116,8 @@ graph TD
     style Approve fill:#e6f5ff,stroke:#0066cc,stroke-width:2px
     style StepFinish fill:#fff9e6,stroke:#cc9900,stroke-width:2px
     style LlmSplit fill:#fff9e6,stroke:#cc9900,stroke-width:1px
+    style SkipAdvice fill:#fff9e6,stroke:#cc9900,stroke-width:2px
+    style SkipRisk fill:#fff9e6,stroke:#cc9900,stroke-width:2px
 ```
 
 ### 2.3. 巨大PRにおける世界標準の2ステップ監査シーケンス（Mermaid）

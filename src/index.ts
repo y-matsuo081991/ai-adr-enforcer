@@ -9,7 +9,8 @@ import {
   hasChangesRequestedFromHumans,
   submitAutoApproveReview,
   getPrChangedFilesList,
-  hasUnresolvedComments
+  hasUnresolvedComments,
+  getHumanGeneralComments
 } from './utils/github';
 import { LlmJudge } from './LlmJudge';
 
@@ -54,6 +55,30 @@ function extractFileDiff(fullDiff: string, filepath: string): string {
     }
   }
   return fileLines.join('\n');
+}
+
+/**
+ * 変更ファイルがすべて安全なファイル（静的資産・設定ファイル等）であるか判定します。
+ * 
+ * @param files 変更されたファイルのリスト
+ * @returns すべて安全なファイルであれば true、それ以外は false
+ */
+function isSafeFilesOnly(files: string[]): boolean {
+  if (files.length === 0) return false;
+  
+  // 安全なファイルの拡張子やパターン
+  const safePatterns = [
+    /\.md$/i,
+    /package\.json$/i,
+    /tsconfig\.json$/i,
+    /\.ya?ml$/i,
+    /\.gitignore$/i,
+    /LICENSE$/i
+  ];
+
+  return files.every(file => 
+    safePatterns.some(pattern => pattern.test(file))
+  );
 }
 
 export async function run(): Promise<void> {
@@ -123,22 +148,37 @@ export async function run(): Promise<void> {
     }
 
     const changedLines = countChangedLines(prDiff);
-    core.info(`PR change stats: ${changedLines} lines of code modified.`);
+    
+    // ADR-012: 安全ファイルのみの変更判定
+    let isSafeFiles = false;
+    let changedFiles: string[] = [];
+    try {
+      changedFiles = await getPrChangedFilesList(githubToken, prNumber);
+      isSafeFiles = isSafeFilesOnly(changedFiles);
+    } catch (e) {
+      core.warning(`Failed to fetch changed files list: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    }
+
+    core.info(`PR change stats: ${changedLines} lines of code modified. Safe files only: ${isSafeFiles}`);
 
     const judge = new LlmJudge(geminiApiKey);
 
+    // 静的ルールによる足切り判定（オプトアウト）
+    // 安全なファイルのみの変更、または変更規模が30行以下の場合は通常監査（＝自動承認可能）
+    const isStaticRulePass = isSafeFiles || (changedLines <= autoApproveMaxLines);
+
     // 4. LlmJudge による監査フェーズ (分岐判定)
-    if (autoApprove && changedLines > autoApproveMaxLines) {
+    if (autoApprove && !isStaticRulePass) {
       // 巨大PR向け：世界標準2ステップ監査
       core.info('Executing world-standard 2-step audit for large PR');
       
-      const changedFiles = await getPrChangedFilesList(githubToken, prNumber);
+      const changedFilesList = changedFiles.length > 0 ? changedFiles : await getPrChangedFilesList(githubToken, prNumber);
       
       let globalTimeoutTriggered = false;
       const violations: string[] = [];
       const suggestions: string[] = [];
 
-      for (const file of changedFiles) {
+      for (const file of changedFilesList) {
         // グローバルタイムアウト検証 (180秒予算の厳守)
         if (Date.now() - startTime > (GLOBAL_TIMEOUT_MS - TIMEOUT_BUFFER_MS)) {
           core.warning('[Timeout Fallback] Global 180s limit is approaching. Terminating further audits and posting current findings.');
@@ -163,6 +203,16 @@ export async function run(): Promise<void> {
         }
       }
 
+      // 監査メタデータログを出力（スキップ理由を明記）
+      const auditLog = `[Auto-Approve Audit Log]
+- Enabled: ${autoApprove}
+- Is Safe Files Only: ${isSafeFiles}
+- Total Diff Lines: ${changedLines} (Threshold: ${autoApproveMaxLines}) -> SKIP
+- AI Decision: N/A
+- AI Risk Level: N/A
+- Result: Skipped (Change scale exceeds threshold)`;
+      core.info(auditLog);
+
       if (violations.length > 0) {
         core.info('❌ ADR Violation detected on large PR. Posting comment...');
         let commentBody = `## 🚨 Architecture Violation Detected (Large PR 2-Step Audit)\n\n${violations.join('\n\n')}`;
@@ -183,27 +233,60 @@ export async function run(): Promise<void> {
     } else {
       // 通常規模PRの通常監査、あるいは自動承認が無効な場合の既存フロー
       core.info('Data fetching completed. Proceeding to evaluation...');
-      const result = await judge.evaluate(adrContent, prDiff);
+      
+      const prAuthor = context.payload.pull_request?.user?.login || '';
+      const humanComments = await getHumanGeneralComments(githubToken, prNumber, prAuthor);
+      const result = await judge.evaluate(adrContent, prDiff, humanComments);
 
       // 5. フィードバックフェーズ
       if (result.decision === 'pass') {
         core.info('✅ ADR Check Passed: No architectural violations detected.');
 
         // ADR 012: 自動承認判定
-        if (autoApprove && result.risk_level === 'low') {
-          // 人間が CHANGES_REQUESTED レビューを残しているか確認
+        if (autoApprove) {
           const hasHumanChanges = await hasChangesRequestedFromHumans(githubToken, prNumber);
-          if (hasHumanChanges) {
-            core.info('Skipping auto-approve due to human CHANGES_REQUESTED');
+          const isRiskLevelLow = result.risk_level === 'low';
+          const isRemediationPass = result.remediation_status !== 'unresolved';
+
+          let auditResult = '';
+          if (!isRiskLevelLow) {
+            auditResult = `Skipped (Risk Level: ${result.risk_level || 'unknown'})`;
+          } else if (hasHumanChanges) {
+            auditResult = 'Skipped (Human CHANGES_REQUESTED exists)';
+          } else if (!isRemediationPass) {
+            auditResult = 'Skipped (Unresolved human comments)';
           } else {
-            // 未解決の会話スレッドが残っているか確認（業界標準）
-            const hasUnresolved = await hasUnresolvedComments(githubToken, prNumber);
-            if (hasUnresolved) {
-              core.info('Skipping auto-approve due to unresolved conversations');
+            auditResult = 'Approved (Review submitted)';
+          }
+
+          // 監査ログ（Audit Trail）の構築と出力
+          const auditLog = `[Auto-Approve Audit Log]
+- Enabled: ${autoApprove}
+- Is Safe Files Only: ${isSafeFiles}
+- Total Diff Lines: ${changedLines} (Threshold: ${autoApproveMaxLines}) -> PASS
+- AI Decision: ${result.decision}
+- AI Risk Level: ${result.risk_level || 'low'} -> ${isRiskLevelLow ? 'PASS' : 'SKIP'}
+- Result: ${auditResult}`;
+
+          core.info(auditLog);
+
+          if (isRiskLevelLow) {
+            if (hasHumanChanges) {
+              core.info('Skipping auto-approve due to human CHANGES_REQUESTED');
+            } else if (!isRemediationPass) {
+              core.info('Skipping auto-approve due to unresolved human comments');
+              
+              if (result.remediation_advice) {
+                const adviceComment = `### ⚠️ Previous Human Review Unresolved\n\nSome of the previous human review comments are still outstanding or not fully addressed in the latest changes.\n\n#### 💡 Remediation Advice:\n${result.remediation_advice}`;
+                await postOrUpdateComment(githubToken, prNumber, adviceComment);
+              }
             } else {
+              // 過去指摘が解決済み (resolved) または そもそも存在しない (no_human_comments) の場合
               await submitAutoApproveReview(githubToken, prNumber);
               core.info(`[Auto-Approve Audit Log] Approved PR #${prNumber} automatically.`);
             }
+          } else {
+            core.info(`Skipping auto-approve due to risk level: ${result.risk_level || 'unknown'}`);
           }
         }
       } else {

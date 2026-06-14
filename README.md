@@ -22,8 +22,9 @@ AIがリポジトリ内のすべてのADRを読み込み、PRのDiff（差分コ
 2. **LLM-as-a-Judge:** 変更されたコード（Diff）をGemini 3.1 Pro 等の高度なモデルで監査。「なぜ違反しているのか」をADRを引用して論理的に指摘。
 3. **Auto-remediation (自己修復):** 違反を検知した際、AIが制約を満たす修正コード（Suggestion）を自動生成し、**ワンクリックでコミット可能な形でPRに提案**。
 4. **Automated Enforcement:** 違反（MUST FIX / SHOULD FIX レベルの技術的負債）を発見した場合、PRにインラインコメントを残し、**Status Check を `Fail` にしてマージをブロック**。
-5. **Escape Hatch (脱出ハッチ):** AIの誤検知時や緊急対応時に、特定のラベル（`bypass-adr`）を付与するだけでAIの監査を安全に強制スキップ可能。
-6. **Enterprise-Grade Security:** Prompt Injection対策（System Instructionの分離）や、ハルシネーションによるフィッシングリンクを無効化する出力サニタイズ機構を標準搭載。
+5. **Hybrid Auto-Approve (ハイブリッド自動承認):** 軽微な差分（デフォルト30行以下）や安全なファイル（`.md`, `package.json`, `tsconfig.json`, `*.yml`等）のみの変更で、AIが「リスク極小 (risk_level: low)」と判定した場合、自動でPRをApprove（承認）します。リスクが `medium` 以上の場合は自動承認を安全にスキップして手動レビューにハンドオフします。
+6. **Escape Hatch (脱出ハッチ):** AIの誤検知時や緊急対応時に、特定のラベル（`bypass-adr`）を付与するだけでAIの監査を安全に強制スキップ可能。
+7. **Enterprise-Grade Security:** Prompt Injection対策（System Instructionの分離）や、ハルシネーションによるフィッシングリンクを無効化する出力サニタイズ機構を標準搭載。
 
 ## 🚀 使い方 (Usage)
 
@@ -48,6 +49,66 @@ jobs:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           adr_directory: 'docs/adr' # ADRファイルが置かれているディレクトリ
           fail_open: 'false' # API障害時にCIをパスさせる場合は 'true'
+          auto_approve: 'true' # ハイブリッド自動承認を有効化 (デフォルト: false)
+          auto_approve_max_lines: '30' # 自動承認のしきい値行数 (デフォルト: 30)
+```
+
+### 🔒 GitHub App を使った自動承認の高度な連携 (Advanced: GitHub App Integration)
+
+GitHub のデフォルトトークンである `${{ secrets.GITHUB_TOKEN }}` を使ってPRを自動承認（APPROVE）した場合、**GitHub のセキュリティ制限（Recursion Prevention / ワークフロー再帰防止）により、その承認をトリガーとした他の GitHub Actions（例: 自動マージ、別の検証CI、デプロイ等）は実行されません。** また、Branch Protection Rule（ブランチ保護ルール）で「PRレビューの最小承認数」を設定している場合、`GITHUB_TOKEN` による承認が承認レビュー数にカウントされないことがあります。
+
+これを回避し、**自動承認から自動マージ・デプロイまでを完全に自動化（シームレスに連携）する**には、各企業・プロジェクト側でカスタムの **GitHub App** を作成し、そのトークンを使用するのがベストプラクティスです。
+
+#### 🛠️ 設定手順
+
+1. **GitHub App の作成**:
+   - Organization（または個人アカウント）の Settings > Developer settings > GitHub Apps > **New GitHub App** を開きます。
+   - Webhook の `Active` はオフにして構いません。
+   - **Repository permissions** で以下を設定・付与します：
+     - **Pull requests**: `Read & write` （自動レビュー承認の投稿に必要）
+     - **Contents**: `Read-only` （PRのコード差分やADRファイルの読み込みに必要）
+   - アプリを保存し、表示される **App ID** を控えます。
+   - 画面下部から **Private key** (`.pem` ファイル) を生成してダウンロードします。
+
+2. **GitHub Secrets への登録**:
+   - 対象のリポジトリの Settings > Secrets and variables > Actions に以下を登録します。
+     - `ADR_ENFORCER_APP_ID`: 控えた App ID
+     - `ADR_ENFORCER_PRIVATE_KEY`: ダウンロードした `.pem` ファイルの全テキスト
+
+3. **ワークフロー YAML の記述例**:
+   - GitHub公式の `actions/create-github-app-token` アクションを使い、実行時に一時トークンを生成して本アクションの `github_token` に引き渡します。
+
+```yaml
+name: Architecture Governance
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  enforce-adr:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. GitHub App トークンの生成
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.ADR_ENFORCER_APP_ID }}
+          private-key: ${{ secrets.ADR_ENFORCER_PRIVATE_KEY }}
+
+      # 2. コードのチェックアウト
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 3. ADR Enforcer の実行 (App トークンを使用)
+      - name: AI-Driven ADR Enforcer
+        uses: y-matsuo081991/ai-adr-enforcer@v1.0.0
+        with:
+          github_token: ${{ steps.app-token.outputs.token }} # 生成した App トークン
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          adr_directory: 'docs/adr'
+          auto_approve: 'true' # 自動承認を有効化
 ```
 
 ## 💡 具体的な利用例 (Example in Action)
