@@ -1,0 +1,20 @@
+name: Test ADR Enforcer
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  test-enforce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: AI-Driven ADR Enforcer
+        uses: ./
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          auto_approve: 'true'
+          auto_approve_max_lines: '30'
