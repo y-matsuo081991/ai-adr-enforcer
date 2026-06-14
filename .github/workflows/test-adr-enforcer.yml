@@ -7,6 +7,9 @@ on:
 jobs:
   test-enforce:
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -17,4 +20,4 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           auto_approve: 'true'
-          auto_approve_max_lines: '30'
+          auto_approve_max_lines: '100'

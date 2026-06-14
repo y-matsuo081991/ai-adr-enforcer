@@ -45,6 +45,7 @@ export function filterDiffNoise(diff: string): string {
     'package-lock\\.json',
     'yarn\\.lock',
     'pnpm-lock\\.yaml',
+    'dist/index\\.js',
     '\\.svg$',
     '\\.png$',
     '\\.jpg$',
@@ -259,31 +260,47 @@ export async function getPrChangedFilesList(token: string, prNumber: number): Pr
   }
 }
 
-/**
- * PRに未解決のコメント（スレッド）が1つでも存在するか確認します。
- * 
- * @param token GitHub Token
- * @param prNumber 対象のPull Request番号
- * @returns 未解決のコメントスレッドがある場合は true、なければ false
- */
 export async function hasUnresolvedComments(token: string, prNumber: number): Promise<boolean> {
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), 30000);
+
   try {
     const octokit = github.getOctokit(token);
     const { owner, repo } = github.context.repo;
 
-    const { data: comments } = await octokit.rest.pulls.listReviewComments({
+    const query = `
+      query($owner: String!, $repo: String!, $number: Int!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $number) {
+            reviewThreads(first: 100) {
+              nodes {
+                isResolved
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const response = await octokit.graphql<any>(query, {
       owner,
       repo,
-      pull_number: prNumber,
+      number: prNumber,
+      request: { signal: abortController.signal }
     });
 
-    // 各コメントに `resolved` プロパティがあり、それが `false` のものが存在するかチェック
-    return comments.some((comment: any) => comment.resolved === false);
+    const threads = response.repository?.pullRequest?.reviewThreads?.nodes || [];
+    return threads.some((thread: any) => !thread.isResolved);
   } catch (error) {
     if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        throw new Error('Failed to check unresolved comments: GraphQL API request timed out (30s limit)');
+      }
       throw new Error(`Failed to check unresolved comments: ${error.message}`);
     }
     throw new Error('Failed to check unresolved comments: Unknown error');
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
