@@ -6,6 +6,7 @@ import * as crypto from 'crypto';
 const JudgeResultSchema = z.object({
   decision: z.enum(['pass', 'fail']),
   reasoning: z.string(),
+  risk_level: z.enum(['low', 'medium', 'high']).optional(),
   suggestion: z.string().nullable().optional(),
 });
 
@@ -63,13 +64,18 @@ ${endDelimiter}
           type: Type.STRING,
           description: 'The reasoning behind the decision, citing specific parts of the ADR and Diff.',
         },
+        risk_level: {
+          type: Type.STRING,
+          description: 'The risk level of the changes, either "low", "medium", or "high". Use "low" for highly safe, simple, or low-impact changes.',
+          enum: ['low', 'medium', 'high'],
+        },
         suggestion: {
           type: Type.STRING,
           description: 'If fail, provide the corrected code snippet. Omit if pass.',
           nullable: true,
         },
       },
-      required: ['decision', 'reasoning'],
+      required: ['decision', 'reasoning', 'risk_level'],
     };
 
     try {

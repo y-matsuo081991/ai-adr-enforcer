@@ -164,4 +164,48 @@ describe('LlmJudge (LLM-as-a-Judge Core Engine)', () => {
     // Act & Assert
     await expect(judge.evaluate(dummyAdr, maliciousDiff)).rejects.toThrow('Potential Prompt Injection detected: Diff contains reserved delimiter pattern.');
   });
+
+  it('8. LLMが risk_level を含んだJSONを返した場合、正しくパースして risk_level を返却すること', async () => {
+    // Arrange: モックが risk_level: 'low' を返すように設定
+    const dummyAdr = 'ADR 001';
+    const dummyDiff = '+ const x = 1;';
+    
+    const mockGenerateContent = (judge as any).ai.models.generateContent;
+    mockGenerateContent.mockResolvedValueOnce({
+      text: JSON.stringify({
+        decision: 'pass',
+        reasoning: 'ADR compliant and safe',
+        risk_level: 'low'
+      })
+    });
+
+    // Act
+    const result = await judge.evaluate(dummyAdr, dummyDiff);
+
+    // Assert
+    expect(result.decision).toBe('pass');
+    expect(result.risk_level).toBe('low');
+  });
+
+  it('9. [後方互換性] LLMが risk_level を返さない場合（古いフォーマット等）でも、エラーにならず正常パースできること', async () => {
+    // Arrange: モックが risk_level なしのJSONを返す
+    const dummyAdr = 'ADR 001';
+    const dummyDiff = '+ const x = 1;';
+    
+    const mockGenerateContent = (judge as any).ai.models.generateContent;
+    mockGenerateContent.mockResolvedValueOnce({
+      text: JSON.stringify({
+        decision: 'pass',
+        reasoning: 'ADR compliant and safe'
+        // risk_level なし
+      })
+    });
+
+    // Act
+    const result = await judge.evaluate(dummyAdr, dummyDiff);
+
+    // Assert
+    expect(result.decision).toBe('pass');
+    expect(result.risk_level).toBeUndefined(); // もしくは default値 が設定されていればそれ
+  });
 });
