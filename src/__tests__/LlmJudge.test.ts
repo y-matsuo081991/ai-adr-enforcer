@@ -89,7 +89,7 @@ describe('LlmJudge (LLM-as-a-Judge Core Engine)', () => {
     const mockGenerateContent = (judge as any).ai.models.generateContent;
     expect(mockGenerateContent).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: 'gemini-3.1-pro-preview',
+        model: 'gemini-2.5-flash',
         contents: expect.stringContaining(dummyDiff), // contentsにはUser Message (Diff)が入る
         config: expect.objectContaining({
           systemInstruction: expect.stringContaining(dummyAdr), // config.systemInstruction にADRが入る

@@ -247,7 +247,7 @@ describe('Action Entrypoint (index.ts)', () => {
       expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Skipping auto-approve due to human CHANGES_REQUESTED'));
     });
 
-    it('10. auto_approveがtrueだが、変更行数がしきい値を超える巨大PRの場合、自動承認はスキップするが、2ステップ監査を実行すること', async () => {
+    it('10. auto_approveがtrueだが、変更行数がしきい値を超える巨大PRの場合、自動承認はスキップするが、一括監査を実行すること', async () => {
       // Arrange
       // 35行のプログラム変更（しきい値30を超える）
       const largeDiff = '+\n'.repeat(35);
@@ -262,8 +262,8 @@ describe('Action Entrypoint (index.ts)', () => {
       // Assert
       // 巨大PRのため自動Approveは行われないこと
       expect(submitAutoApproveReview).not.toHaveBeenCalled();
-      // 2ステップ監査（全体目次インプット ➔ 個別監査）がトリガーされていることをログ等で確認
-      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Executing world-standard 2-step audit for large PR'));
+      // 一括監査がトリガーされていることをログ等で確認
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Executing single-request consolidated audit for large PR'));
     });
 
     it('11. 人間が過去に残した指摘コメントが未解決の場合、自動承認をスキップし、Remediation Adviceコメントを投稿すること', async () => {

@@ -169,66 +169,33 @@ export async function run(): Promise<void> {
 
     // 4. LlmJudge による監査フェーズ (分岐判定)
     if (autoApprove && !isStaticRulePass) {
-      // 巨大PR向け：世界標準2ステップ監査
-      core.info('Executing world-standard 2-step audit for large PR');
+      // 巨大PR向け：一括監査に変更 (N+1問題の解決)
+      core.info('Executing single-request consolidated audit for large PR');
       
-      const changedFilesList = changedFiles.length > 0 ? changedFiles : await getPrChangedFilesList(githubToken, prNumber);
-      
-      let globalTimeoutTriggered = false;
-      const violations: string[] = [];
-      const suggestions: string[] = [];
+      const prAuthor = context.payload.pull_request?.user?.login || '';
+      const humanComments = await getHumanGeneralComments(githubToken, prNumber, prAuthor);
+      const result = await judge.evaluate(adrContent, prDiff, humanComments);
 
-      for (const file of changedFilesList) {
-        // グローバルタイムアウト検証 (180秒予算の厳守)
-        if (Date.now() - startTime > (GLOBAL_TIMEOUT_MS - TIMEOUT_BUFFER_MS)) {
-          core.warning('[Timeout Fallback] Global 180s limit is approaching. Terminating further audits and posting current findings.');
-          globalTimeoutTriggered = true;
-          break;
-        }
-
-        let fileDiff = extractFileDiff(prDiff, file);
-        if (!fileDiff && prDiff) {
-          // テストのモック等のために diff --git がない場合は全体の diff でフォールバック
-          fileDiff = prDiff;
-        }
-
-        if (fileDiff.trim()) {
-          const result = await judge.evaluate(adrContent, fileDiff);
-          if (result.decision === 'fail') {
-            violations.push(`**File: \`${file}\`**\n${result.reasoning}`);
-            if (result.suggestion) {
-              suggestions.push(`**File: \`${file}\`**\n\`\`\`suggestion\n${result.suggestion}\n\`\`\``);
-            }
-          }
-        }
-      }
-
-      // 監査メタデータログを出力（スキップ理由を明記）
+      // 監査メタデータログを出力
       const auditLog = `[Auto-Approve Audit Log]
 - Enabled: ${autoApprove}
 - Is Safe Files Only: ${isSafeFiles}
 - Total Diff Lines: ${changedLines} (Threshold: ${autoApproveMaxLines}) -> SKIP
-- AI Decision: N/A
-- AI Risk Level: N/A
+- AI Decision: ${result.decision}
+- AI Risk Level: ${result.risk_level || 'low'}
 - Result: Skipped (Change scale exceeds threshold)`;
       core.info(auditLog);
 
-      if (violations.length > 0) {
+      if (result.decision === 'fail') {
         core.info('❌ ADR Violation detected on large PR. Posting comment...');
-        let commentBody = `## 🚨 Architecture Violation Detected (Large PR 2-Step Audit)\n\n${violations.join('\n\n')}`;
-        if (suggestions.length > 0) {
-          commentBody += `\n\n### 💡 Auto-remediation Suggestion\n\n${suggestions.join('\n\n')}`;
+        let commentBody = `## 🚨 Architecture Violation Detected (Large PR Audit)\n\n${result.reasoning}`;
+        if (result.suggestion) {
+          commentBody += `\n\n### 💡 Auto-remediation Suggestion\n\`\`\`suggestion\n${result.suggestion}\n\`\`\``;
         }
         await postOrUpdateComment(githubToken, prNumber, commentBody);
-
-        if (globalTimeoutTriggered) {
-          // タイムアウト時は縮退運転としてCIを正常終了させる (ADR 012)
-          core.warning('[Timeout Degraded] Action finished with violations, but returned SUCCESS due to strict 180s timeout budget.');
-        } else {
-          core.setFailed('ADR Violation detected. See PR comment for details.');
-        }
+        core.setFailed('ADR Violation detected. See PR comment for details.');
       } else {
-        core.info('✅ ADR Check Passed: No architectural violations detected in 2-step large PR audit.');
+        core.info('✅ ADR Check Passed: No architectural violations detected in consolidated large PR audit.');
       }
     } else {
       // 通常規模PRの通常監査、あるいは自動承認が無効な場合の既存フロー
