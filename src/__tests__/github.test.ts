@@ -134,6 +134,38 @@ index abc..def
     expect(filtered).not.toContain('public/photo.Jpg');
     expect(filtered).toContain('src/index.ts');
   });
+
+  it('3. CocoaPods関連ファイルやiOSビルド自動生成ファイルを除外できること', () => {
+    const rawDiff = `diff --git a/ios/App/Podfile.lock b/ios/App/Podfile.lock
+index 111..222
+--- a/ios/App/Podfile.lock
++++ b/ios/App/Podfile.lock
+@@ -1,2 +1,2 @@
+-PODS:
+-  - Capacitor (7.0.0)
++PODS:
++  - Capacitor (7.0.1)
+diff --git a/ios/App/Pods/Target Support Files/Pods-App/Pods-App.debug.xcconfig b/ios/App/Pods/Target Support Files/Pods-App/Pods-App.debug.xcconfig
+index 333..444
+--- a/ios/App/Pods/Target Support Files/Pods-App/Pods-App.debug.xcconfig
++++ b/ios/App/Pods/Target Support Files/Pods-App/Pods-App.debug.xcconfig
+@@ -1 +1,2 @@
++// added config
+diff --git a/src/index.ts b/src/index.ts
+index abc..def
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1,2 +1,3 @@
+ console.log("actual code change");
+`;
+
+    const filtered = filterDiffNoise(rawDiff);
+
+    expect(filtered).not.toContain('ios/App/Podfile.lock');
+    expect(filtered).not.toContain('ios/App/Pods');
+    expect(filtered).toContain('src/index.ts');
+    expect(filtered).toContain('actual code change');
+  });
 });
 
 describe('getPrDiff', () => {

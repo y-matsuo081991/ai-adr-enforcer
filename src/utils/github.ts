@@ -50,6 +50,10 @@ export function filterDiffNoise(diff: string): string {
     '\\.png$',
     '\\.jpg$',
     '\\.map$',
+    'ios/App/Pods/',
+    'ios/App/Podfile\\.lock',
+    'Manifest\\.lock',
+    'Pods\\.xcodeproj',
   ];
   
   const excludeRegex = new RegExp(`diff --git a/.* b/.*(${excludePatterns.join('|')})`, 'i');
