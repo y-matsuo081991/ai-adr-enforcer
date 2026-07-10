@@ -2,94 +2,109 @@
 
 > **"Architecture Governance as Code"**
 >
-> 組織で合意したアーキテクチャの意思決定（ADR: Architecture Decision Records）が、日々のPull Requestで確実に守られているかを **AI (LLM-as-a-Judge) が自動監査し、負債の混入を水際でブロックする** GitHub Action です。
+> A production-grade GitHub Action that implements **LLM-as-a-Judge** to dynamically audit incoming Pull Requests against your project's Architecture Decision Records (ADRs). It automatically catches architectural drift, blocks policy-violating commits, and offers self-healing suggestions directly inside the PR timeline.
 
-[![GitHub Marketplace](https://img.shields.io/badge/Marketplace-AI--ADR--Enforcer-blue.svg)](#)
-[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](#)
+[![GitHub Release](https://img.shields.io/github/v/release/y-matsuo081991/ai-adr-enforcer?color=blue&style=flat-square)](https://github.com/y-matsuo081991/ai-adr-enforcer/releases)
+[![Marketplace](https://img.shields.io/badge/GitHub-Marketplace-blue?logo=github&style=flat-square)](https://github.com/marketplace/actions/ai-driven-adr-enforcer)
+[![License](https://img.shields.io/github/license/y-matsuo081991/ai-adr-enforcer?style=flat-square)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-%20-blue?logo=typescript&logoColor=white&style=flat-square)](#)
 
-## 📖 背景と解決する課題 (Why this exists)
+---
 
-アジャイルな組織において、技術的負債を防ぐために **ADR（アーキテクチャ決定記録）** を制定することはベストプラクティスです（例: 「直接DBに繋いではならない」「特定のライブラリを使ってはならない」等）。
+## 📖 The Problem & The Solution (Why This Exists)
 
-しかし、どれだけ立派なADRを作っても、**「人間（レビュアー）がそれをすべて記憶し、PRのたびに目視でチェックする」** ことは不可能であり、すぐにルールは形骸化し、システムは腐敗（Architectural Drift）していきます。
+In agile, high-velocity engineering organizations, establishing **Architecture Decision Records (ADRs)** is the gold standard for maintaining a long-term, maintainable codebase (e.g., *"All data fetching must be abstracted behind repository patterns,"* or *"Direct DB connections from BFF are strictly prohibited"*).
 
-`AI-Driven ADR Enforcer` はこの問題を解決します。
-AIがリポジトリ内のすべてのADRを読み込み、PRのDiff（差分コード）と突き合わせることで、「制定された法律（ADR）」に違反するコードを自動的に検知・リジェクトし、CTOやアーキテクトの認知負荷を劇的に下げます。
+However, ADRs quickly become **stale and ignored**. Expecting human reviewers to remember and manually cross-reference dozens of markdown files on every Pull Request is a recipe for **Architectural Drift** and technical debt accumulation.
 
-## ✨ 主な機能 (Features)
+`AI-Driven ADR Enforcer` solves this. 
+By integrating advanced LLMs (such as Google Gemini Pro/Flash) into your CI/CD pipeline, this Action dynamically reads your codebase's local ADR folder, audits the PR code diff, reasons about architectural compliance, and immediately rejects non-compliant PRs with actionable, inline solutions.
 
-1. **Context-Aware Review:** リポジトリ内の `docs/adr/` 等のMarkdownファイルを動的に読み込み、プロジェクト固有のルールを学習。
-2. **LLM-as-a-Judge:** 変更されたコード（Diff）をGemini 3.1 Pro 等の高度なモデルで監査。「なぜ違反しているのか」をADRを引用して論理的に指摘。
-3. **Auto-remediation (自己修復):** 違反を検知した際、AIが制約を満たす修正コード（Suggestion）を自動生成し、**ワンクリックでコミット可能な形でPRに提案**。
-4. **Automated Enforcement:** 違反（MUST FIX / SHOULD FIX レベルの技術的負債）を発見した場合、PRにインラインコメントを残し、**Status Check を `Fail` にしてマージをブロック**。
-5. **Hybrid Auto-Approve (ハイブリッド自動承認):** 軽微な差分（デフォルト30行以下）や安全なファイル（`.md`, `package.json`, `tsconfig.json`, `*.yml`等）のみの変更で、AIが「リスク極小 (risk_level: low)」と判定した場合、自動でPRをApprove（承認）します。リスクが `medium` 以上の場合は自動承認を安全にスキップして手動レビューにハンドオフします。
-6. **Escape Hatch (脱出ハッチ):** AIの誤検知時や緊急対応時に、特定のラベル（`bypass-adr`）を付与するだけでAIの監査を安全に強制スキップ可能。
-7. **Enterprise-Grade Security:** Prompt Injection対策（System Instructionの分離）や、ハルシネーションによるフィッシングリンクを無効化する出力サニタイズ機構を標準搭載。
+---
 
-## 🚀 使い方 (Usage)
+## ✨ Key Features
 
-`.github/workflows/adr-enforcer.yml` を作成し、以下のように設定するだけです。
+* 🚀 **Retrieval-Augmented Auditing (Local RAG):** Scans and parses your specified local ADR directory (e.g., `docs/adr/`) dynamically. It evaluates the PR code diff using the actual, live constraints of your project.
+* 🧠 **LLM-as-a-Judge Reasoning:** Leverages structured output formats (JSON schemas) to force the LLM to provide rigorous step-by-step reasoning citing the exact ADR file and decision clause before drawing a compliance verdict (`Pass`/`Fail`).
+* 🩹 **Self-Healing Suggestions (Auto-remediation):** When an architectural violation is detected, the Action generates compliant code alternatives and posts them as **native GitHub Multi-line Suggestions**—allowing developers to apply the fix with a single click.
+* 🚦 **Automated Quality Gates:** Automatically leaves inline comments on the offending lines, fails the Status Check, and **blocks the PR from being merged** if critical violations are found.
+* 🧪 **Hybrid Auto-Approval Pipeline:** For small changes (e.g., under 30 lines) or safe files (such as documentation, config changes, lockfiles), the Action performs a safety risk assessment. If marked as `low_risk`, it automatically approves the PR. If `medium` or `high` risk, it safely hands off to human reviewers.
+* 🏷️ **Bypass Escape Hatch:** Offers an emergency bypass label (`bypass-adr`) to safely skip AI audits during high-severity production hotfixes.
+* 🔒 **Enterprise-Grade Security:** Employs strict system prompt isolation to prevent prompt injection and implements comprehensive output sanitization to neutralize malicious links or hallucinated phishing domains.
+
+---
+
+## 🚀 Quick Start
+
+Create a workflow file (e.g., `.github/workflows/adr-enforcer.yml`) in your repository:
 
 ```yaml
 name: Architecture Governance
+
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, reopened]
 
 jobs:
   enforce-adr:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # Required for posting comments and approvals
+
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: AI-Driven ADR Enforcer
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run AI-Driven ADR Enforcer
         uses: y-matsuo081991/ai-adr-enforcer@v1.0.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-          adr_directory: 'docs/adr' # ADRファイルが置かれているディレクトリ
-          fail_open: 'false' # API障害時にCIをパスさせる場合は 'true'
-          auto_approve: 'true' # ハイブリッド自動承認を有効化 (デフォルト: false)
-          auto_approve_max_lines: '30' # 自動承認のしきい値行数 (デフォルト: 30)
+          adr_directory: 'docs/adr'          # Path to your ADR markdown files
+          fail_open: 'false'                 # If true, passes the CI if the LLM API is unavailable
+          auto_approve: 'true'               # Enable the Hybrid Auto-Approval pipeline (Default: false)
+          auto_approve_max_lines: '30'       # Threshold line count for auto-approval
 ```
 
-### ⚠️ 自動承認（Auto-Approve）を有効にする場合の必須設定
+### ⚠️ Prerequisite for Auto-Approve Permissions
 
-本アクションで `auto_approve: 'true'` を有効化する場合、GitHubリポジトリ側で以下の設定を行わないと、GitHub Actionsがプルリクエストを承認する権限を持たないため、エラー（`Unprocessable Entity: "GitHub Actions is not permitted to approve pull requests."`）が発生しCIが失敗します。
+If you set `auto_approve: 'true'`, you must configure your repository to allow GitHub Actions to issue Pull Request approvals. Without this, the runner will throw an `Unprocessable Entity` error.
 
-1. 対象リポジトリの **Settings（設定）** ➔ **Actions** ➔ **General** を開きます。
-2. ページ最下部付近にある **Workflow permissions** セクションを探します。
-3. **「Allow GitHub Actions to create and approve pull requests」** のチェックボックスを **オン（有効）** にし、**Save** をクリックして保存します。
+1. Navigate to your repository's **Settings** ➔ **Actions** ➔ **General**.
+2. Scroll to the bottom to find the **Workflow permissions** section.
+3. Check the box for **"Allow GitHub Actions to create and approve pull requests"** and click **Save**.
 
-> [!NOTE]
-> **安全ブレーキ（未解決コメントの考慮）について**
-> 人間のレビュアーの意思決定を絶対尊重するため、PR上に1件でも「未解決の会話スレッド（Unresolved Conversation）」が残っている間は、誤承認マージを防ぐために自動承認が即座にオプトアウト（安全にスキップ）されます。すべてのスレッドが「Resolve conversation」で解決状態にマークされた時のみ、自動承認の評価が再開されます。
+> [!IMPORTANT]
+> **Safety Interlock (Unresolved Conversations)**
+> To preserve human decision authority, the Auto-Approval engine will immediately opt-out and skip execution if there is even a single **Unresolved Conversation** thread on the PR. It will only resume evaluation once all human comment threads are marked as "Resolved."
 
+---
 
-### 🔒 GitHub App を使った自動承認の高度な連携 (Advanced: GitHub App Integration)
+## 🔒 Advanced: High-Trust Enterprise GitHub App Integration
 
-GitHub のデフォルトトークンである `${{ secrets.GITHUB_TOKEN }}` を使ってPRを自動承認（APPROVE）した場合、**GitHub のセキュリティ制限（Recursion Prevention / ワークフロー再帰防止）により、その承認をトリガーとした他の GitHub Actions（例: 自動マージ、別の検証CI、デプロイ等）は実行されません。** また、Branch Protection Rule（ブランチ保護ルール）で「PRレビューの最小承認数」を設定している場合、`GITHUB_TOKEN` による承認が承認レビュー数にカウントされないことがあります。
+Using the default `${{ secrets.GITHUB_TOKEN }}` to issue reviews has a built-in security limitation: **GitHub prevents actions triggered by `GITHUB_TOKEN` from cascading into other workflows.** For example, an approval from `GITHUB_TOKEN` will not trigger your auto-merge or deployment pipelines, and may not count towards branch protection rule minimums.
 
-これを回避し、**自動承認から自動マージ・デプロイまでを完全に自動化（シームレスに連携）する**には、各企業・プロジェクト側でカスタムの **GitHub App** を作成し、そのトークンを使用するのがベストプラクティスです。
+To enable seamless, secure end-to-end automation, you should create a custom **GitHub App** to run the Enforcer.
 
-#### 🛠️ 設定手順
+### 🛠️ Step-by-Step Setup
 
-1. **GitHub App の作成**:
-   - Organization（または個人アカウント）の Settings > Developer settings > GitHub Apps > **New GitHub App** を開きます。
-   - Webhook の `Active` はオフにして構いません。
-   - **Repository permissions** で以下を設定・付与します：
-     - **Pull requests**: `Read & write` （自動レビュー承認の投稿に必要）
-     - **Contents**: `Read-only` （PRのコード差分やADRファイルの読み込みに必要）
-   - アプリを保存し、表示される **App ID** を控えます。
-   - 画面下部から **Private key** (`.pem` ファイル) を生成してダウンロードします。
+1. **Create the GitHub App:**
+   - Go to your Organization/User Settings ➔ **Developer Settings** ➔ **GitHub Apps** ➔ **New GitHub App**.
+   - Disable the **Webhook Active** toggle (webhooks are not needed).
+   - Set the following **Repository Permissions**:
+     - **Pull requests:** `Read & write` (Required to post comments and approvals)
+     - **Contents:** `Read-only` (Required to read the file diffs and ADR directory)
+   - Click **Save** and note down the **App ID**.
+   - Generate and download a **Private Key** (`.pem` file) from the bottom of the page.
 
-2. **GitHub Secrets への登録**:
-   - 対象のリポジトリの Settings > Secrets and variables > Actions に以下を登録します。
-     - `ADR_ENFORCER_APP_ID`: 控えた App ID
-     - `ADR_ENFORCER_PRIVATE_KEY`: ダウンロードした `.pem` ファイルの全テキスト
+2. **Register Secrets in Your Repository:**
+   - Go to Repository **Settings** ➔ **Secrets and variables** ➔ **Actions** ➔ **New repository secret**:
+     - `ADR_ENFORCER_APP_ID`: The App ID from step 1.
+     - `ADR_ENFORCER_PRIVATE_KEY`: The entire raw contents of the downloaded `.pem` private key file.
 
-3. **ワークフロー YAML の記述例**:
-   - GitHub公式の `actions/create-github-app-token` アクションを使い、実行時に一時トークンを生成して本アクションの `github_token` に引き渡します。
+3. **Update Your Workflow YAML:**
+   - Use the official `actions/create-github-app-token` action to obtain an ephemeral token:
 
 ```yaml
 name: Architecture Governance
@@ -102,7 +117,6 @@ jobs:
   enforce-adr:
     runs-on: ubuntu-latest
     steps:
-      # 1. GitHub App トークンの生成
       - name: Generate GitHub App Token
         id: app-token
         uses: actions/create-github-app-token@v1
@@ -110,33 +124,41 @@ jobs:
           app-id: ${{ secrets.ADR_ENFORCER_APP_ID }}
           private-key: ${{ secrets.ADR_ENFORCER_PRIVATE_KEY }}
 
-      # 2. コードのチェックアウト
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 3. ADR Enforcer の実行 (App トークンを使用)
-      - name: AI-Driven ADR Enforcer
+      - name: Run AI-Driven ADR Enforcer
         uses: y-matsuo081991/ai-adr-enforcer@v1.0.0
         with:
-          github_token: ${{ steps.app-token.outputs.token }} # 生成した App トークン
+          github_token: ${{ steps.app-token.outputs.token }}
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           adr_directory: 'docs/adr'
-          auto_approve: 'true' # 自動承認を有効化
+          auto_approve: 'true'
 ```
 
-## 💡 具体的な利用例 (Example in Action)
+---
 
-このツールがどのように機能するか、架空のブログシステムを例に解説します。
+## 💡 Real-World Example in Action
 
-### 1. ADRの定義 (プロジェクトの法律)
-`docs/adr/001-database-selection.md` に以下のルールが定義されているとします。
-> **Decision:**  
-> 当プロジェクトのブログ記事データは、必ず **SQLite** を使用して保存すること。環境構築の容易さを最優先するため、MySQLやPostgreSQLなどの外部プロセスを必要とするDBは採用してはならない。
+Let's demonstrate how this pipeline protects a project from architecture decay.
 
-### 2. 開発者のPull Request (違反コード)
-ある開発者が、よかれと思って `PostgreSQL` に接続するコードをコミットしました。
+### 1. The Defined Architecture Rule (Local ADR)
+File `docs/adr/001-database-selection.md` dictates:
+```markdown
+# 001. Database Selection for Blog Storage
 
-```javascript
+## Context
+We need a lightweight, zero-dependency database to facilitate trivial local setups.
+
+## Decision
+All article content must be saved and loaded strictly using **SQLite**. 
+Using heavy external database servers (such as MySQL or PostgreSQL) that require external processes is strictly prohibited in this codebase.
+```
+
+### 2. A Developer's Pull Request (The Architectural Violation)
+A developer attempts to introduce PostgreSQL to solve an edge-case indexing problem:
+
+```diff
 // src/db.js
 - const db = new sqlite3.Database(':memory:');
 + const { Client } = require('pg');
@@ -144,27 +166,51 @@ jobs:
 + db.connect();
 ```
 
-### 3. AIの監査と自動修復の提案 (Enforcement & Auto-remediation)
-GitHub Actionがトリガーされると、AIがこの違反を検知し、PRに以下のような自動コメントを投稿し、マージをブロック（Fail）します。
+### 3. Automated Guardrail & Self-Healing Comment
+Upon code push, the Action runs, catches the violation, fails the CI status check, and injects an inline suggestion:
 
-> 🚨 **Architecture Violation Detected!**
+> ### 🚨 Architecture Violation Detected!
 > 
-> 提案されたコード変更は `pg` モジュールを導入し PostgreSQL に接続しようとしていますが、これはプロジェクトの規約に明確に違反しています。
-> Reference ADR: `001-database-selection.md`
+> The proposed code change introduces the `pg` client module to establish connection to a PostgreSQL database server. This is in direct violation of the project's architectural guidelines.
 > 
-> ### 💡 Auto-remediation Suggestion
-> \`\`\`suggestion
+> * **Violated Record:** `001-database-selection.md`
+> * **Constraint Clause:** All article content must be saved and loaded strictly using **SQLite**.
+> 
+> #### 🩹 Self-Healing Suggestion
+> ```suggestion
 > const sqlite3 = require('sqlite3').verbose();
 > const db = new sqlite3.Database(':memory:');
-> \`\`\`
+> ```
 
-開発者は、GitHubのPR画面上に表示される **「Commit suggestion」ボタン** をクリックするだけで、AIの提案した修正コードを安全にブランチへ取り込むことができます。
+*The developer can simply click the **"Commit suggestion"** button inside the GitHub UI to safely apply the compliant fix and green-light the CI.*
 
-## 🧠 アーキテクチャ (How it works)
+---
 
-本ツールは以下のフローで自律的に動作します。
+## 🧠 System Architecture
 
-1. **Fetch:** `@actions/github` を用いてトリガーされたPRのDiffを取得。
-2. **RAG (Retrieval):** 指定された `adr_directory` から `.md` ファイルを収集し、システムプロンプトとして結合。
-3. **Eval:** LLMに対して「与えられたADRの制約に、このDiffは違反していないか？」と問いかけ、Pydantic (Structured Output) 形式で厳密な判定（Pass/Fail）と推論過程（Reasoning）を取得。
-4. **Action:** 違反があれば GitHub API (Octokit) を通じて Review Comment を投稿し、`core.setFailed()` でCIを落とす。
+```mermaid
+graph TD
+    A[Pull Request Event] --> B[Fetch Code Diff]
+    A --> C[Collect Local ADR Markdown Files]
+    B --> D[Context Assembly & Security Sanitization]
+    C --> D
+    D --> E[LLM Audit Engine - Structured JSON Verdict]
+    E --> F{Is Compliant?}
+    F -- No --> G[Inject Native Inline Suggestion]
+    G --> H[Set CI Status to Fail & Block Merge]
+    F -- Yes --> I{Is Auto-Approve Enabled?}
+    I -- Yes --> J{Risk Risk Assessment}
+    J -- Low Risk & No Unresolved Threads --> K[Auto-Approve PR]
+    J -- Medium/High Risk --> L[Pass CI & Hand-off to Human Review]
+    I -- No --> M[Pass CI]
+```
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions to make architecture governance more automated and resilient! Please feel free to open Issues or submit Pull Requests.
+
+## 📄 License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
