@@ -84,7 +84,7 @@ describe('Action Entrypoint (index.ts)', () => {
     await run();
 
     // Assert
-    expect(LlmJudge).toHaveBeenCalledWith('dummy-gemini-key');
+    expect(LlmJudge).toHaveBeenCalledWith('dummy-gemini-key', 'gemini-3.1-flash-lite');
     expect(mockEvaluate).toHaveBeenCalledWith('Mocked ADR Content', 'Mocked PR Diff', []);
     expect(core.info).toHaveBeenCalledWith(expect.stringContaining('ADR Check Passed'));
     expect(postOrUpdateComment).not.toHaveBeenCalled();
@@ -206,6 +206,7 @@ describe('Action Entrypoint (index.ts)', () => {
         if (name === 'fail_open') return 'false';
         if (name === 'auto_approve') return 'true'; // 自動承認有効化
         if (name === 'auto_approve_max_lines') return '30';
+        if (name === 'model') return 'gemini-3.1-flash-lite';
         return '';
       });
 
