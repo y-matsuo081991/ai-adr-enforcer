@@ -30,6 +30,10 @@ inputs:
     description: 'The line count threshold for considering a PR small for auto-approval. Defaults to 30 lines.'
     required: false
     default: '30'
+  model:
+    description: 'The Gemini model to use for auditing (e.g. gemini-3.1-flash-lite, gemini-3.5-flash). Defaults to gemini-3.1-flash-lite.'
+    required: false
+    default: 'gemini-3.1-flash-lite'
 runs:
   using: 'node24'
   main: 'dist/index.js'

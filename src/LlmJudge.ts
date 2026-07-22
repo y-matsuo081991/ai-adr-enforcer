@@ -16,10 +16,12 @@ export type JudgeResult = z.infer<typeof JudgeResultSchema>;
 
 export class LlmJudge {
   private ai: GoogleGenAI;
+  private model: string;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, model: string = 'gemini-3.1-flash-lite') {
     // 新しいSDKの初期化
     this.ai = new GoogleGenAI({ apiKey });
+    this.model = model;
   }
 
   async evaluate(adrContent: string, prDiff: string, humanComments: string[] = []): Promise<JudgeResult> {
@@ -111,7 +113,7 @@ ${endDelimiter}
 
     try {
       const response = await this.ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: this.model,
         contents: userMessage,
         config: {
           systemInstruction: systemPrompt,

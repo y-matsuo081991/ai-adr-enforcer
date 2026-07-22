@@ -116,6 +116,7 @@ export async function run(): Promise<void> {
     const autoApprove = core.getInput('auto_approve') === 'true';
     const autoApproveMaxLinesInput = core.getInput('auto_approve_max_lines');
     const autoApproveMaxLines = autoApproveMaxLinesInput ? parseInt(autoApproveMaxLinesInput, 10) : 30;
+    const model = core.getInput('model') || 'gemini-3.1-flash-lite';
 
     // 【NFR: Privacy】 ログ出力のマスキング機能 (Sensitive Data Masking)
     core.setSecret(githubToken);
@@ -161,7 +162,7 @@ export async function run(): Promise<void> {
 
     core.info(`PR change stats: ${changedLines} lines of code modified. Safe files only: ${isSafeFiles}`);
 
-    const judge = new LlmJudge(geminiApiKey);
+    const judge = new LlmJudge(geminiApiKey, model);
 
     // 静的ルールによる足切り判定（オプトアウト）
     // 安全なファイルのみの変更、または変更規模が30行以下の場合は通常監査（＝自動承認可能）
