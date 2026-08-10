@@ -102,4 +102,29 @@ describe('AdrRouter [ADR-013] Stage 1: 軽量インデックスによる関連AD
 
     expect(result).toEqual(['002-styling.md']);
   });
+
+  it('8. [LlmJudgeとの一貫性] コンストラクタでモデル名を省略した場合、デフォルトの gemini-3.1-flash-lite が使われること', async () => {
+    mockGenerateContent.mockResolvedValue({
+      text: JSON.stringify({ selected_file_names: [] }),
+    });
+
+    await router.selectRelevantAdrs(dummyIndex, '+ const a = 1;');
+
+    expect(mockGenerateContent).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'gemini-3.1-flash-lite' }),
+    );
+  });
+
+  it('9. [LlmJudgeとの一貫性] コンストラクタで指定された任意のモデル名でAPIが呼び出されること', async () => {
+    const customRouter = new AdrRouter('dummy_api_key', 'gemini-3.5-flash');
+    mockGenerateContent.mockResolvedValue({
+      text: JSON.stringify({ selected_file_names: [] }),
+    });
+
+    await customRouter.selectRelevantAdrs(dummyIndex, '+ const a = 1;');
+
+    expect(mockGenerateContent).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'gemini-3.5-flash' }),
+    );
+  });
 });

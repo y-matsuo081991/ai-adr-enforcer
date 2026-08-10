@@ -8,6 +8,7 @@ import { AdrIndexEntry } from './adrLoader';
  */
 export declare class AdrRouter {
     private ai;
-    constructor(apiKey: string);
+    private model;
+    constructor(apiKey: string, model?: string);
     selectRelevantAdrs(index: AdrIndexEntry[], prDiff: string): Promise<string[]>;
 }

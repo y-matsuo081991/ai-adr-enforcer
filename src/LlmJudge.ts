@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { z } from 'zod';
 import * as crypto from 'crypto';
-import { GEMINI_MODEL } from './utils/geminiModel';
+import { DEFAULT_GEMINI_MODEL } from './utils/geminiModel';
 
 // LLMからの出力を検証・パースするためのZodスキーマ
 const JudgeResultSchema = z.object({
@@ -17,10 +17,12 @@ export type JudgeResult = z.infer<typeof JudgeResultSchema>;
 
 export class LlmJudge {
   private ai: GoogleGenAI;
+  private model: string;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, model: string = DEFAULT_GEMINI_MODEL) {
     // 新しいSDKの初期化
     this.ai = new GoogleGenAI({ apiKey });
+    this.model = model;
   }
 
   async evaluate(adrContent: string, prDiff: string, humanComments: string[] = []): Promise<JudgeResult> {
@@ -112,7 +114,7 @@ ${endDelimiter}
 
     try {
       const response = await this.ai.models.generateContent({
-        model: GEMINI_MODEL,
+        model: this.model,
         contents: userMessage,
         config: {
           systemInstruction: systemPrompt,

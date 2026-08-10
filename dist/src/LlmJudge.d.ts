@@ -21,7 +21,8 @@ declare const JudgeResultSchema: z.ZodObject<{
 export type JudgeResult = z.infer<typeof JudgeResultSchema>;
 export declare class LlmJudge {
     private ai;
-    constructor(apiKey: string);
+    private model;
+    constructor(apiKey: string, model?: string);
     evaluate(adrContent: string, prDiff: string, humanComments?: string[]): Promise<JudgeResult>;
 }
 export {};

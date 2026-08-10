@@ -1,6 +1,5 @@
 import { LlmJudge } from '../LlmJudge';
 import { z } from 'zod';
-import { GEMINI_MODEL } from '../utils/geminiModel';
 
 // @google/genai モジュールをモックし、外部APIを叩かずにテストを完結させる
 jest.mock('@google/genai', () => {
@@ -90,7 +89,7 @@ describe('LlmJudge (LLM-as-a-Judge Core Engine)', () => {
     const mockGenerateContent = (judge as any).ai.models.generateContent;
     expect(mockGenerateContent).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: GEMINI_MODEL,
+        model: 'gemini-3.1-flash-lite',
         contents: expect.stringContaining(dummyDiff), // contentsにはUser Message (Diff)が入る
         config: expect.objectContaining({
           systemInstruction: expect.stringContaining(dummyAdr), // config.systemInstruction にADRが入る
@@ -208,5 +207,23 @@ describe('LlmJudge (LLM-as-a-Judge Core Engine)', () => {
     // Assert
     expect(result.decision).toBe('pass');
     expect(result.risk_level).toBeUndefined(); // もしくは default値 が設定されていればそれ
+  });
+
+  it('10. [モデル移行] コンストラクタで指定された任意のモデル名（例: gemini-3.5-flash）で API が呼び出されること', async () => {
+    // Arrange
+    const customJudge = new LlmJudge('dummy_api_key', 'gemini-3.5-flash');
+    const dummyAdr = 'ADR 001';
+    const dummyDiff = '+ const a = 1;';
+
+    // Act
+    await customJudge.evaluate(dummyAdr, dummyDiff);
+
+    // Assert
+    const mockGenerateContent = (customJudge as any).ai.models.generateContent;
+    expect(mockGenerateContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'gemini-3.5-flash'
+      })
+    );
   });
 });

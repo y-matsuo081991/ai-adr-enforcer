@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { z } from 'zod';
 import { AdrIndexEntry } from './adrLoader';
-import { GEMINI_MODEL } from './geminiModel';
+import { DEFAULT_GEMINI_MODEL } from './geminiModel';
 
 /**
  * ADR-013 Stage 1: 「軽量なインデックス（title/descriptionのみ）」と「PR Diff」を渡し、
@@ -12,9 +12,12 @@ import { GEMINI_MODEL } from './geminiModel';
  */
 export class AdrRouter {
   private ai: GoogleGenAI;
+  private model: string;
 
-  constructor(apiKey: string) {
+  // LlmJudgeと同じデフォルトモデル・同じconstructor injectionパターンに揃える
+  constructor(apiKey: string, model: string = DEFAULT_GEMINI_MODEL) {
     this.ai = new GoogleGenAI({ apiKey });
+    this.model = model;
   }
 
   async selectRelevantAdrs(index: AdrIndexEntry[], prDiff: string): Promise<string[]> {
@@ -60,7 +63,7 @@ Return only file names that appear verbatim in the index above.
     };
 
     const response = await this.ai.models.generateContent({
-      model: GEMINI_MODEL,
+      model: this.model,
       contents: prDiff,
       config: {
         systemInstruction: systemPrompt,

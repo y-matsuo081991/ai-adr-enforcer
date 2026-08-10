@@ -2,6 +2,7 @@ import * as core from '@actions/core';
 import * as github from '@actions/github';
 import { loadAdrIndex, loadAdrFilesByNames } from './utils/adrLoader';
 import { AdrRouter } from './utils/adrRouter';
+import { DEFAULT_GEMINI_MODEL } from './utils/geminiModel';
 import {
   getPrDiff, 
   postOrUpdateComment, 
@@ -117,6 +118,7 @@ export async function run(): Promise<void> {
     const autoApprove = core.getInput('auto_approve') === 'true';
     const autoApproveMaxLinesInput = core.getInput('auto_approve_max_lines');
     const autoApproveMaxLines = autoApproveMaxLinesInput ? parseInt(autoApproveMaxLinesInput, 10) : 30;
+    const model = core.getInput('model') || DEFAULT_GEMINI_MODEL;
 
     // 【NFR: Privacy】 ログ出力のマスキング機能 (Sensitive Data Masking)
     core.setSecret(githubToken);
@@ -151,7 +153,7 @@ export async function run(): Promise<void> {
     // Stage 2 — 絞り込んだADRのみフル本文を読み込む（Document Summary Index パターン）。
     // ADR-011のMAX_ADR_SIZEハードリミットは、絞り込んだ結果に対しても引き続き適用される（安全側マージン）。
     const adrIndex = loadAdrIndex(adrDirectory);
-    const adrRouter = new AdrRouter(geminiApiKey);
+    const adrRouter = new AdrRouter(geminiApiKey, model);
     const selectedAdrFileNames = await adrRouter.selectRelevantAdrs(adrIndex, prDiff);
     const adrContent = loadAdrFilesByNames(adrDirectory, selectedAdrFileNames);
     core.info(
@@ -172,7 +174,7 @@ export async function run(): Promise<void> {
 
     core.info(`PR change stats: ${changedLines} lines of code modified. Safe files only: ${isSafeFiles}`);
 
-    const judge = new LlmJudge(geminiApiKey);
+    const judge = new LlmJudge(geminiApiKey, model);
 
     // 静的ルールによる足切り判定（オプトアウト）
     // 安全なファイルのみの変更、または変更規模が30行以下の場合は通常監査（＝自動承認可能）
