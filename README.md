@@ -191,9 +191,12 @@ Upon code push, the Action runs, catches the violation, fails the CI status chec
 ```mermaid
 graph TD
     A[Pull Request Event] --> B[Fetch Code Diff]
-    A --> C[Collect Local ADR Markdown Files]
+    A --> C1[Build Lightweight ADR Index - title & description only]
+    C1 --> C2[Stage 1: LLM Routes Relevant ADR File Names]
+    B --> C2
+    C2 --> C3[Stage 2: Load Full Content of Selected ADRs Only]
     B --> D[Context Assembly & Security Sanitization]
-    C --> D
+    C3 --> D
     D --> E[LLM Audit Engine - Structured JSON Verdict]
     E --> F{Is Compliant?}
     F -- No --> G[Inject Native Inline Suggestion]

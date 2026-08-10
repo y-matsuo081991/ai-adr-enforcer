@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { z } from 'zod';
 import * as crypto from 'crypto';
+import { GEMINI_MODEL } from './utils/geminiModel';
 
 // LLMからの出力を検証・パースするためのZodスキーマ
 const JudgeResultSchema = z.object({
@@ -111,7 +112,7 @@ ${endDelimiter}
 
     try {
       const response = await this.ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: GEMINI_MODEL,
         contents: userMessage,
         config: {
           systemInstruction: systemPrompt,

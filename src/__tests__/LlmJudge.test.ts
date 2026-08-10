@@ -1,5 +1,6 @@
 import { LlmJudge } from '../LlmJudge';
 import { z } from 'zod';
+import { GEMINI_MODEL } from '../utils/geminiModel';
 
 // @google/genai モジュールをモックし、外部APIを叩かずにテストを完結させる
 jest.mock('@google/genai', () => {
@@ -89,7 +90,7 @@ describe('LlmJudge (LLM-as-a-Judge Core Engine)', () => {
     const mockGenerateContent = (judge as any).ai.models.generateContent;
     expect(mockGenerateContent).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: 'gemini-2.5-flash',
+        model: GEMINI_MODEL,
         contents: expect.stringContaining(dummyDiff), // contentsにはUser Message (Diff)が入る
         config: expect.objectContaining({
           systemInstruction: expect.stringContaining(dummyAdr), // config.systemInstruction にADRが入る

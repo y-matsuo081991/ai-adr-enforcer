@@ -1,7 +1,8 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
-import { loadAdrFiles } from './utils/adrLoader';
-import { 
+import { loadAdrIndex, loadAdrFilesByNames } from './utils/adrLoader';
+import { AdrRouter } from './utils/adrRouter';
+import {
   getPrDiff, 
   postOrUpdateComment, 
   filterDiffNoise, 
@@ -127,11 +128,10 @@ export async function run(): Promise<void> {
     }
 
     core.info(`Processing PR #${prNumber} with ADRs from ${adrDirectory}...`);
-    
+
     // 3. データ取得フェーズ
-    const adrContent = loadAdrFiles(adrDirectory);
     const rawPrDiff = await getPrDiff(githubToken, prNumber);
-    
+
     // ADR-003: ノイズのフィルタリング
     const prDiff = filterDiffNoise(rawPrDiff);
 
@@ -146,6 +146,17 @@ export async function run(): Promise<void> {
         throw new Error(msg); // Fail-Closed
       }
     }
+
+    // ADR-013: Stage 1 — 軽量インデックス（title/descriptionのみ）でこのDiffに関連しそうなADRを絞り込み、
+    // Stage 2 — 絞り込んだADRのみフル本文を読み込む（Document Summary Index パターン）。
+    // ADR-011のMAX_ADR_SIZEハードリミットは、絞り込んだ結果に対しても引き続き適用される（安全側マージン）。
+    const adrIndex = loadAdrIndex(adrDirectory);
+    const adrRouter = new AdrRouter(geminiApiKey);
+    const selectedAdrFileNames = await adrRouter.selectRelevantAdrs(adrIndex, prDiff);
+    const adrContent = loadAdrFilesByNames(adrDirectory, selectedAdrFileNames);
+    core.info(
+      `[AdrRouter] Selected ${selectedAdrFileNames.length}/${adrIndex.length} ADR(s) as relevant to this diff.`,
+    );
 
     const changedLines = countChangedLines(prDiff);
     
