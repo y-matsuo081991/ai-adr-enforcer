@@ -1,8 +1,9 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
 import { run } from '../index';
-import { loadAdrFiles } from '../utils/adrLoader';
-import { 
+import { loadAdrIndex, loadAdrFilesByNames } from '../utils/adrLoader';
+import { AdrRouter } from '../utils/adrRouter';
+import {
   getPrDiff, 
   postOrUpdateComment, 
   filterDiffNoise,
@@ -24,6 +25,7 @@ jest.mock('@actions/github', () => ({
   },
 }));
 jest.mock('../utils/adrLoader');
+jest.mock('../utils/adrRouter');
 jest.mock('../utils/github', () => ({
   getPrDiff: jest.fn(),
   postOrUpdateComment: jest.fn(),
@@ -39,13 +41,22 @@ jest.mock('../LlmJudge');
 
 describe('Action Entrypoint (index.ts)', () => {
   let mockEvaluate: jest.Mock;
+  let mockSelectRelevantAdrs: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (loadAdrFiles as jest.Mock).mockReturnValue('Mocked ADR Content');
+    (loadAdrIndex as jest.Mock).mockReturnValue([
+      { fileName: 'dummy.md', title: 'Dummy ADR', description: 'Dummy description' },
+    ]);
+    (loadAdrFilesByNames as jest.Mock).mockReturnValue('Mocked ADR Content');
     (getPrDiff as jest.Mock).mockResolvedValue('Mocked PR Diff');
     (getHumanGeneralComments as jest.Mock).mockResolvedValue([]);
-    
+
+    mockSelectRelevantAdrs = jest.fn().mockResolvedValue(['dummy.md']);
+    (AdrRouter as jest.Mock).mockImplementation(() => ({
+      selectRelevantAdrs: mockSelectRelevantAdrs,
+    }));
+
     mockEvaluate = jest.fn();
     (LlmJudge as jest.Mock).mockImplementation(() => ({
       evaluate: mockEvaluate,
@@ -62,7 +73,7 @@ describe('Action Entrypoint (index.ts)', () => {
     // Assert
     expect(core.info).toHaveBeenCalledWith(expect.stringContaining('only runs on pull_request events'));
     expect(core.getInput).not.toHaveBeenCalled();
-    expect(loadAdrFiles).not.toHaveBeenCalled();
+    expect(loadAdrIndex).not.toHaveBeenCalled();
   });
 
   it('2. 監査結果が "pass" の場合、コメントを投稿せずに正常終了すること', async () => {
@@ -189,8 +200,72 @@ describe('Action Entrypoint (index.ts)', () => {
     // Assert
     expect(core.info).toHaveBeenCalledWith(expect.stringContaining('ADR Check skipped due to "bypass-adr" label'));
     expect(core.getInput).not.toHaveBeenCalled(); // 早期リターンによりInputも取得しない
-    expect(loadAdrFiles).not.toHaveBeenCalled();
+    expect(loadAdrIndex).not.toHaveBeenCalled();
     expect(core.setFailed).not.toHaveBeenCalled();
+  });
+
+  describe('[ADR-013] Stage 1/Stage 2 ハイブリッドADR検索の結線', () => {
+    beforeEach(() => {
+      github.context.eventName = 'pull_request';
+      github.context.payload = { pull_request: { number: 123 } };
+      (core.getInput as jest.Mock).mockImplementation((name: string) => {
+        if (name === 'github_token') return 'dummy-github-token';
+        if (name === 'gemini_api_key') return 'dummy-gemini-key';
+        if (name === 'adr_directory') return 'docs/adr';
+        if (name === 'fail_open') return 'false';
+        return '';
+      });
+      mockEvaluate.mockResolvedValue({ decision: 'pass', reasoning: 'All good' });
+    });
+
+    it('8. loadAdrIndexで作った軽量インデックスがAdrRouterに渡り、Stage 1が選んだファイル名だけがloadAdrFilesByNamesに渡され、その結果がLlmJudgeに渡ること', async () => {
+      // Arrange
+      const dummyIndex = [
+        { fileName: '001-relevant.md', title: 'Relevant ADR', description: 'Matches this diff' },
+        { fileName: '002-irrelevant.md', title: 'Irrelevant ADR', description: 'Unrelated' },
+      ];
+      (loadAdrIndex as jest.Mock).mockReturnValue(dummyIndex);
+      mockSelectRelevantAdrs.mockResolvedValue(['001-relevant.md']);
+      (loadAdrFilesByNames as jest.Mock).mockReturnValue('Full content of 001-relevant.md only');
+
+      // Act
+      await run();
+
+      // Assert
+      expect(loadAdrIndex).toHaveBeenCalledWith('docs/adr');
+      expect(AdrRouter).toHaveBeenCalledWith('dummy-gemini-key', 'gemini-3.1-flash-lite');
+      expect(mockSelectRelevantAdrs).toHaveBeenCalledWith(dummyIndex, 'Mocked PR Diff');
+      expect(loadAdrFilesByNames).toHaveBeenCalledWith('docs/adr', ['001-relevant.md']);
+      expect(mockEvaluate).toHaveBeenCalledWith('Full content of 001-relevant.md only', 'Mocked PR Diff', []);
+    });
+
+    it('9. Stage 1が関連ADRなし（空配列）と判定した場合でも、クラッシュせずloadAdrFilesByNamesが空配列で呼ばれること', async () => {
+      // Arrange
+      mockSelectRelevantAdrs.mockResolvedValue([]);
+      (loadAdrFilesByNames as jest.Mock).mockReturnValue('');
+
+      // Act
+      await run();
+
+      // Assert
+      expect(loadAdrFilesByNames).toHaveBeenCalledWith('docs/adr', []);
+      expect(mockEvaluate).toHaveBeenCalledWith('', 'Mocked PR Diff', []);
+      expect(core.setFailed).not.toHaveBeenCalled();
+    });
+
+    it('10. Stage 1（AdrRouter）がエラーを投げた場合、fail_open=falseならCIを落とすこと', async () => {
+      // Arrange
+      mockSelectRelevantAdrs.mockRejectedValue(new Error('AdrRouter: Failed to validate LLM response schema. The response format was invalid.'));
+
+      // Act
+      await run();
+
+      // Assert
+      expect(mockEvaluate).not.toHaveBeenCalled();
+      expect(core.setFailed).toHaveBeenCalledWith(
+        'AdrRouter: Failed to validate LLM response schema. The response format was invalid.',
+      );
+    });
   });
 
   describe('Hybrid Auto-Approve & 2-Step Audit Policies (ADR 012)', () => {

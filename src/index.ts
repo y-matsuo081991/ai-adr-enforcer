@@ -1,7 +1,9 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
-import { loadAdrFiles } from './utils/adrLoader';
-import { 
+import { loadAdrIndex, loadAdrFilesByNames } from './utils/adrLoader';
+import { AdrRouter } from './utils/adrRouter';
+import { DEFAULT_GEMINI_MODEL } from './utils/geminiModel';
+import {
   getPrDiff, 
   postOrUpdateComment, 
   filterDiffNoise, 
@@ -116,7 +118,7 @@ export async function run(): Promise<void> {
     const autoApprove = core.getInput('auto_approve') === 'true';
     const autoApproveMaxLinesInput = core.getInput('auto_approve_max_lines');
     const autoApproveMaxLines = autoApproveMaxLinesInput ? parseInt(autoApproveMaxLinesInput, 10) : 30;
-    const model = core.getInput('model') || 'gemini-3.1-flash-lite';
+    const model = core.getInput('model') || DEFAULT_GEMINI_MODEL;
 
     // 【NFR: Privacy】 ログ出力のマスキング機能 (Sensitive Data Masking)
     core.setSecret(githubToken);
@@ -128,11 +130,10 @@ export async function run(): Promise<void> {
     }
 
     core.info(`Processing PR #${prNumber} with ADRs from ${adrDirectory}...`);
-    
+
     // 3. データ取得フェーズ
-    const adrContent = loadAdrFiles(adrDirectory);
     const rawPrDiff = await getPrDiff(githubToken, prNumber);
-    
+
     // ADR-003: ノイズのフィルタリング
     const prDiff = filterDiffNoise(rawPrDiff);
 
@@ -147,6 +148,17 @@ export async function run(): Promise<void> {
         throw new Error(msg); // Fail-Closed
       }
     }
+
+    // ADR-013: Stage 1 — 軽量インデックス（title/descriptionのみ）でこのDiffに関連しそうなADRを絞り込み、
+    // Stage 2 — 絞り込んだADRのみフル本文を読み込む（Document Summary Index パターン）。
+    // ADR-011のMAX_ADR_SIZEハードリミットは、絞り込んだ結果に対しても引き続き適用される（安全側マージン）。
+    const adrIndex = loadAdrIndex(adrDirectory);
+    const adrRouter = new AdrRouter(geminiApiKey, model);
+    const selectedAdrFileNames = await adrRouter.selectRelevantAdrs(adrIndex, prDiff);
+    const adrContent = loadAdrFilesByNames(adrDirectory, selectedAdrFileNames);
+    core.info(
+      `[AdrRouter] Selected ${selectedAdrFileNames.length}/${adrIndex.length} ADR(s) as relevant to this diff.`,
+    );
 
     const changedLines = countChangedLines(prDiff);
     

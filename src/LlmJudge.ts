@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { z } from 'zod';
 import * as crypto from 'crypto';
+import { DEFAULT_GEMINI_MODEL } from './utils/geminiModel';
 
 // LLMからの出力を検証・パースするためのZodスキーマ
 const JudgeResultSchema = z.object({
@@ -18,7 +19,7 @@ export class LlmJudge {
   private ai: GoogleGenAI;
   private model: string;
 
-  constructor(apiKey: string, model: string = 'gemini-3.1-flash-lite') {
+  constructor(apiKey: string, model: string = DEFAULT_GEMINI_MODEL) {
     // 新しいSDKの初期化
     this.ai = new GoogleGenAI({ apiKey });
     this.model = model;
