@@ -57,7 +57,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run AI-Driven ADR Enforcer
-        uses: y-matsuo081991/ai-adr-enforcer@v1.0.0
+        uses: y-matsuo081991/ai-adr-enforcer@v1.1.8
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
@@ -128,7 +128,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run AI-Driven ADR Enforcer
-        uses: y-matsuo081991/ai-adr-enforcer@v1.0.0
+        uses: y-matsuo081991/ai-adr-enforcer@v1.1.8
         with:
           github_token: ${{ steps.app-token.outputs.token }}
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
